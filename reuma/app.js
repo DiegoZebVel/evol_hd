@@ -55,6 +55,11 @@ async function copyText(t){try{await navigator.clipboard.writeText(t);return tru
 function loadScript(src){return new Promise((res,rej)=>{if(document.querySelector(`script[src="${src}"]`))return res();const s=document.createElement('script');s.src=src;s.onload=res;s.onerror=()=>rej(new Error('No se pudo cargar '+src));document.head.appendChild(s)})}
 const absURL=p=>new URL(p,location.href).href;
 
+/* ---------- confirmación dentro de la app (no depende de los diálogos de Safari) ---------- */
+function ask(msg,ok='Sí, continuar'){return new Promise(res=>{const o=document.createElement('div');o.className='modal';
+  o.innerHTML=`<div class="mbox"><p>${esc(msg)}</p><div class="row" style="justify-content:flex-end"><button class="btn" data-r="0">Cancelar</button><button class="btn pri" data-r="1">${esc(ok)}</button></div></div>`;
+  o.addEventListener('click',e=>{const b=e.target.closest('button');if(b||e.target===o){o.remove();res(!!(b&&b.dataset.r==='1'))}});document.body.appendChild(o);o.querySelector('[data-r="1"]').focus()})}
+
 /* ---------- consultas ---------- */
 const P=dni=>DB.patients[dni]||{dni,nombre:'?'};
 function hospsOf(dni){return Object.values(DB.hosps).filter(h=>h.dni===dni).sort((a,b)=>b.ingreso.localeCompare(a.ingreso))}
@@ -171,10 +176,10 @@ let R={v:'censo',fecha:todayISO(),hid:null,eid:null,dni:null,q:'',tab:null,back:
 let CUR=null,saveT=null;
 function go(v,extra){Object.assign(R,{v,tab:null},extra||{});render();window.scrollTo(0,0)}
 function render(){
-  const nav={censo:['censo','nuevo','hosp','ingreso','evol','labs','alta'],pend:['pendientes'],pac:['pacientes','paciente'],aj:['ajustes']};
+  const nav={censo:['censo','nuevo','hosp','importEv','ingreso','evol','labs','alta'],pend:['pendientes'],pac:['pacientes','paciente'],aj:['ajustes']};
   Object.keys(nav).forEach(k=>$('#nav-'+k).classList.toggle('on',nav[k].includes(R.v)));
   CUR=null;document.querySelector('.bar')?.remove();
-  const V={hosp:vHosp,censo:vCenso,nuevo:vNuevo,ingreso:vIngreso,evol:vEvol,labs:vLabs,alta:vAlta,pendientes:vPendientes,pacientes:vPacientes,paciente:vPaciente,ajustes:vAjustes}[R.v];
+  const V={importEv:vImport,hosp:vHosp,censo:vCenso,nuevo:vNuevo,ingreso:vIngreso,evol:vEvol,labs:vLabs,alta:vAlta,pendientes:vPendientes,pacientes:vPacientes,paciente:vPaciente,ajustes:vAjustes}[R.v];
   $('#app').innerHTML=V();
   if(CUR&&CUR.mount)CUR.mount();
   if(CUR&&CUR.preview)CUR.preview();
@@ -244,7 +249,7 @@ async function onClick(ev){const b=ev.target.closest('button');if(!b)return;cons
     if(a==='indDel')l.splice(i,1);else if(a==='indUp')[l[i-1],l[i]]=[l[i],l[i-1]];else l[i].flag=false;refreshInd(d.l);return touch()}
   if(a==='pAdd'){const h=DB.hosps[d.hid],t=up($('#pNew').value).trim();if(!t)return toast('Escribe el pendiente');h.pend.push({id:uid(),tipo:$('#pNewT').value,t,estado:0,res:'',fres:'',created:Date.now()});save();R.keepTab=true;return rerender()}
   if(a==='pEst'){const h=DB.hosps[d.hid],x=h.pend.find(y=>y.id===d.id);x.estado=(x.estado+1)%3;if(x.estado===2&&!x.fres)x.fres=R.fecha;x.updated=Date.now();h.updated=Date.now();save();return rerender()}
-  if(a==='pDel'){const h=DB.hosps[d.hid],x=h.pend.find(y=>y.id===d.id);if(x.t&&!confirm('¿Quitar “'+x.t+'”?'))return;h.pend=h.pend.filter(y=>y.id!==d.id);save();return rerender()}
+  if(a==='pDel'){const h=DB.hosps[d.hid],x=h.pend.find(y=>y.id===d.id);if(x.t&&!await ask('¿Quitar “'+x.t+'”?'))return;h.pend=h.pend.filter(y=>y.id!==d.id);save();return rerender()}
   if(CUR&&CUR.click)return CUR.click(a,d,b);
 }
 function rerender(){const y=window.scrollY;render();window.scrollTo(0,y)}
@@ -306,11 +311,81 @@ function vHosp(){
   <div class="card"><h3>Checklist · ${m==='ingreso'?'Ingreso':m==='alta'?'Alta':'Hoy ('+fmtD(R.fecha)+')'}</h3>
    ${m==='ingreso'?chkIngHTML(h):m==='alta'?altaChecklist(h).map(c=>chkRow(c,a.chk[c],`data-chk="${esc(c)}" data-scope="alta" data-hid="${h.id}"`)).join(''):chkDiaHTML(h,R.fecha)}
    ${m!=='ingreso'&&g.estado==='borrador'?infoRow('⚠️','LA NOTA DE INGRESO SIGUE EN BORRADOR','auto'):''}</div>
+  <div class="card"><div class="pt"><div><h3 style="margin:0">¿Ya tiene evoluciones de otro médico?</h3><div class="muted">Pega la última y la app llena problemas, examen, indicaciones, pendientes y labs.</div></div><button class="btn pri" onclick="go('importEv',{hid:'${h.id}'})">Importar evolución previa</button></div></div>
   <div class="card"><h3>Pendientes</h3>${pendEditor(h)}</div>
   <div class="card"><div class="pt"><h3 style="margin:0">Laboratorio</h3><button class="btn sm pri" onclick="go('labs',{hid:'${h.id}',back:'hosp'})">Importar / ver</button></div>
    ${labs.map(l=>`<div style="margin-top:8px"><b>${fmtD(l.fecha)} · ${AREAS[l.area]}</b><div class="muted">${esc(sortItems(l.items).map(itemTxt).join(', '))}</div></div>`).join('')||'<div class="muted" style="margin-top:8px">Sin resultados.</div>'}</div>
-  ${ev.length?`<div class="card"><h3>Evoluciones</h3>${ev.map(e=>`<div class="pt" style="border-bottom:1px solid var(--line);padding:6px 0"><span>${fmtD(e.fecha)} · DH ${dh(h,e.fecha)} · ${e.estado}</span><button class="btn sm" onclick="R.fecha='${e.fecha}';go('evol',{eid:'${e.id}',hid:'${h.id}'})">Abrir</button></div>`).join('')}</div>`:''}`;
+  ${ev.length?`<div class="card"><h3>Evoluciones</h3>${ev.map(e=>`<div class="pt" style="border-bottom:1px solid var(--line);padding:6px 0"><span>${fmtD(e.fecha)} · DH ${dh(h,e.fecha)} · ${e.estado}</span><button class="btn sm" onclick="R.fecha='${e.fecha}';go('evol',{eid:'${e.id}',hid:'${h.id}'})">Abrir</button></div>`).join('')}</div>`:''}
+  <div class="card"><details><summary>Más opciones</summary><div class="row" style="margin-top:10px">
+   <button class="btn bad sm" onclick="delHosp('${h.id}',true)">Eliminar esta hospitalización</button><button class="btn bad sm" onclick="delPatient('${esc(h.dni)}')">Eliminar paciente (todo)</button></div>
+   <p class="muted">Para pacientes de prueba o registrados por error. No se puede deshacer.</p></details></div>`;
 }
+
+
+/* ---- Importar evolución previa (texto) ---- */
+const SECRE=[['dx',/^(PROBLEMAS?|DIAGNOSTICOS?( DE TRABAJO| PRESUNTIVOS?| ACTIVOS)?|DX|IMPRESION DIAGNOSTICA|I\.?D\.?)\b\s*:?/],['S',/^(S|SUBJETIVO)\s*:/],['fv',/^(FUNCIONES VITALES|SIGNOS VITALES|FV|SV)\b\s*:?/],
+ ['O',/^(O|OBJETIVO|EXAMEN FISICO|AL EXAMEN( FISICO)?|EF)\b\s*:?/],['lab',/^(EXAMENES AUXILIARES|EXS? AUX\w*|LABORATORIO|LAB|RESULTADOS)\b\s*:?/],['A',/^(A|APRECIACION|ANALISIS|EVALUACION)\s*:/],
+ ['P',/^(P|PLAN( DE TRABAJO)?|CONDUCTA)\b\s*:?/],['ind',/^(INDICACIONES\b\s*:?|(TRATAMIENTO|TTO|RP)\s*:)/],['pend',/^(PENDIENTES?)\b\s*:?/]];
+const EXRE=[['gen',/^(GENERAL|ESTADO GENERAL|EG|EGRAL|APARIENCIA)\b/],['piel',/^(PIEL( Y (FANERAS|MUCOSAS))?|PYF)\b/],['tcsc',/^(TCSC|TEJIDO CELULAR( SUBCUTANEO)?)\b/],['osteo',/^(OSTEO\w*|ARTICULAR|LOCOMOTOR|SOMA|MUSCULOESQUELETICO|EXTREMIDADES)\b/],
+ ['resp',/^(TORAX( Y PULMONES)?|TYP|T Y P|PULMONES|RESPIRATORIO|AP|APARATO RESPIRATORIO)\b/],['cv',/^(CV|CARDIOVASCULAR|CARDIO\w*|CORAZON|RCR|ACV)\b/],['abd',/^(ABD\w*)\b/],['gu',/^(GU|GENITOURINARIO|GENITO\w*|URINARIO|RENAL)\b/],['neuro',/^(NEURO\w*|SNC|SN)\b/]];
+function stripNum(l){return l.replace(/^\s*(?:[-•·*]|\d+\s*[.)\-]|[a-z]\))\s*/i,'').trim()}
+function parseEvol(text,fecha){
+  const out={dx:[],S:[],O:[],lab:[],A:[],P:[],ind:[],pend:[],fv:[],ex:{}};let sec=null,exk=null;
+  text.split(/\r?\n/).forEach(raw=>{let l=raw.replace(/\s+/g,' ').trim();if(!l)return;let u=deacc(l);
+    for(const[k,re]of SECRE){const m=u.match(re);if(m&&(k!=='P'||!/^(PA|PCR|PCO|PO2|PLAQ|PROT|PH)\b/.test(u))&&(k!=='A'||/^A\s*:|^APRE|^ANALI|^EVALU/.test(u))&&(k!=='O'||!/^(OJOS|OIDOS|OSTEO)/.test(u))){sec=k;exk=null;l=l.slice(m[0].length).replace(/^[\s:.\-]+/,'').trim();u=deacc(l);break}}
+    if(!l)return;
+    if(sec==='O'||(!['ind','lab','P','dx','A','pend'].includes(sec)&&/^[^:]{2,30}:/.test(u)&&EXRE.some(([k,re])=>re.test(u)))){if(sec!=='O')sec='O';for(const[k,re]of EXRE){const m=u.match(re);if(m){const rest=l.slice(m[0].length).replace(/^[^:]*?:\s*/,'').replace(/^[\s:.\-]+/,'');exk=k;out.ex[k]=(out.ex[k]?out.ex[k]+' ':'')+rest;return}}
+      if(/^(PA|FC|FR|T°|T |SAT|SATO2|PESO)\b/.test(u)){out.fv.push(l);return}if(exk){out.ex[exk]+=' '+l;return}out.O.push(l);return}
+    if(sec)out[sec].push(l)});
+  const r={};
+  r.dx=out.dx.map(stripNum).map(x=>x.replace(/:\s*(ESTABLE|EN MEJORIA|EN MEJORÍA|ESTACIONARIO|EN DETERIORO)\b.*$/i,'')).filter(Boolean);
+  if(!r.dx.length&&out.A.length)r.dx=out.A.map(stripNum).map(x=>x.split(/:|,/)[0].trim()).filter(x=>x.length>2);
+  r.ind=out.ind.map(stripNum).filter(x=>x&&!/^(ALTA MEDICA|INDICACIONES PARA CASA)/i.test(deacc(x))).map(x=>{let fi='';const m=x.match(/\(?\bD(?:IA)?\s?(\d{1,3})\)?\.?\s*$/i);if(m&&fecha){const d=new Date(dUTC(fecha)-(+m[1]-1)*864e5);fi=d.toISOString().slice(0,10);x=x.replace(m[0],'').trim()}return {t:up(x.replace(/\.$/,'')),fi}});
+  r.ex={};Object.keys(out.ex).forEach(k=>{if(out.ex[k].trim())r.ex[k]=up(out.ex[k].trim())});if(out.O.length&&!r.ex.gen)r.ex.gen=up(out.O.join(' '));
+  const pl=out.P.map(stripNum).filter(Boolean);r.pend=[...out.pend.flatMap(x=>stripNum(x).split(/;\s*/)),...pl.filter(x=>/^PENDIENTE/i.test(deacc(x))).map(x=>x.replace(/^PENDIENTES?\s*:?\s*/i,''))].map(x=>x.trim()).filter(Boolean);
+  r.plan=pl.filter(x=>!/^PENDIENTE/i.test(deacc(x))).map(up);
+  r.labs=parseLabs(out.lab.join('\n'),fecha).rows;
+  r.fv=out.fv.join(' ');r.S=out.S.join(' ');
+  return r;
+}
+let IMP={text:'',r:null,fecha:null};
+function vImport(){
+  const h=DB.hosps[R.hid];if(!h){R.v='censo';return vCenso()}const p=P(h.dni);if(!IMP.fecha||IMP.hid!==h.id){IMP={text:'',r:null,fecha:addDays(R.fecha,-1),hid:h.id}}
+  CUR={root:h,hid:h.id,dni:h.dni,async click(a){
+    if(a==='parse'){IMP.text=$('#itext').value;IMP.fecha=$('#ifecha').value||IMP.fecha;IMP.r=parseEvol(IMP.text,IMP.fecha);rerender();if(!IMP.r.dx.length&&!IMP.r.ind.length)toast('No encontré problemas ni indicaciones. Revisa o usa “Copiar para Claude”.')}
+    else if(a==='claude'){const t='Reordena esta evolución médica SIN inventar datos, en MAYÚSCULAS y con estos encabezados exactos, cada uno en su línea:\nPROBLEMAS: (uno por línea, numerados)\nEXAMEN FÍSICO: (una línea por sistema: GENERAL:, PIEL:, TCSC:, OSTEOARTICULAR:, TÓRAX Y PULMONES:, CARDIOVASCULAR:, ABDOMEN:, GENITOURINARIO:, NEUROLÓGICO:)\nEXÁMENES AUXILIARES: (una línea por fecha: dd/mm/aaaa: EXAMEN valor, EXAMEN valor)\nPLAN: (uno por línea)\nPENDIENTES: (uno por línea)\nINDICACIONES: (una por línea, numeradas; conserva el (D3) si lo tiene)\n\n'+anonLabText($('#itext').value);
+      copyText(t).then(o=>toast(o?'Copiado sin nombre/DNI. Pega la respuesta de Claude en el cuadro y vuelve a Procesar':'No se pudo copiar'))}
+    else if(a==='apply'){const r=IMP.r,f=IMP.fecha;if(!f)return toast('Pon la fecha de la evolución');if(f<h.ingreso)return toast('La fecha es anterior al ingreso ('+fmtD(h.ingreso)+')');
+      r.dx=lines($('#idx').value).map(stripNum);r.ind=lines($('#iind').value).map(x=>{const o=r.ind.find(y=>y.t===up(stripNum(x)));return {t:up(stripNum(x)),fi:o?o.fi:''}});
+      let e=evolOn(h.id,f);if(e&&!await ask('Ya hay una evolución del '+fmtD(f)+'. ¿Reemplazarla con la importada?'))return;
+      if(!e){e={id:uid(),hid:h.id,dni:h.dni,fecha:f,hora:'08:00',labSel:{},exChg:{},created:Date.now()};DB.evols[e.id]=e}
+      const prev=evolsOf(h.id).find(x=>x.fecha<f);
+      Object.assign(e,{estado:'final',imported:true,dx:r.dx.map(t=>({t:up(t),estado:'ESTABLE',a:'',p:''})),fv:{pas:'',pad:'',fc:'',fr:'',t:'',sat:'',o2:'AA'},S:up(r.S||''),
+        ex:Object.assign({},prev?prev.ex:h.ing.ex,r.ex),ind:r.ind.map(x=>({id:uid(),t:x.t,fi:x.fi||''})),Aextra:'',Pextra:r.plan.join('\n'),prevId:prev?prev.id:null,texto:up(IMP.text.trim()),updated:Date.now(),closedAt:Date.now()});
+      Object.values(DB.evols).forEach(x=>{if(x.hid===h.id&&x.fecha>f&&(!x.prevId||(DB.evols[x.prevId]&&DB.evols[x.prevId].fecha<f)))x.prevId=e.id});
+      let nl=0;if($('#ilabs')?.checked)r.labs.forEach(row=>{const area=LABMAP[row.k]?LABMAP[row.k].a:'OTROS';let L=h.labs.find(l=>l.fecha===row.fecha&&l.area===area);if(!L){L={id:uid(),fecha:row.fecha,area,items:[],created:0};h.labs.push(L)}if(!L.items.find(i=>i.k===row.k)){L.items.push({k:row.k,v:up(row.v)});nl++}});
+      let np=0;if($('#ipend')?.checked)r.pend.forEach(t=>{if(!h.pend.some(x=>deacc(x.t)===deacc(t))){h.pend.push({id:uid(),tipo:pendType(t)||'OTRO',t:up(t),estado:0,res:'',fres:'',created:Date.now()});np++}});
+      if(h.ing.estado==='previo'){if(!h.ing.prob.trim())h.ing.prob=r.dx.map(up).join('\n');if(!h.ing.ind.length)h.ing.ind=clone(e.ind)}
+      const hoy=evolOn(h.id,R.fecha);
+      if(hoy&&hoy.id!==e.id&&hoy.estado==='borrador'&&await ask('La evolución de hoy ya estaba creada (borrador). ¿Rellenarla con los problemas, examen e indicaciones importados?')){hoy.dx=e.dx.map(d=>({...d}));hoy.ex=clone(e.ex);hoy.ind=clone(e.ind);hoy.Pextra=e.Pextra;hoy.prevId=e.id}
+      save();IMP={text:'',r:null,fecha:null};toast('Evolución del '+fmtD(f)+' importada'+(nl?' · '+nl+' labs':'')+(np?' · '+np+' pendientes':''));go('hosp',{hid:h.id})}}};
+  const r=IMP.r;
+  return `<div class="card"><div class="pt"><div><div class="nm">Importar evolución previa · ${esc(p.nombre)}</div><div class="muted">Cama ${esc(h.cama||'—')} · Ingreso ${fmtD(h.ingreso)}</div></div><button class="btn" onclick="go('hosp',{hid:'${h.id}'})">← Volver</button></div></div>
+  <div class="card"><h3>1 · Pega la evolución</h3><p class="muted" style="margin-top:0">Cópiala del ESSI, de un TXT o de la foto (Texto en vivo / lector). La app saca problemas, examen, plan, pendientes, indicaciones y labs; mañana solo evolucionas lo nuevo.</p>
+   <div class="grid"><div><label>Fecha de esa evolución</label><input type="date" id="ifecha" value="${IMP.fecha}"></div></div>
+   <textarea id="itext" rows="12" style="margin-top:8px" placeholder="Pega aquí la evolución completa…">${esc(IMP.text)}</textarea>
+   <div class="row" style="margin-top:8px"><button class="btn pri" data-act="parse">Procesar</button><span class="sp"></span><button class="btn sm" data-act="claude">Copiar para Claude (sin nombre/DNI)</button></div></div>
+  ${r?`<div class="card"><h3>2 · Revisa lo encontrado</h3>
+   <label>Problemas (uno por línea)</label><textarea id="idx" rows="${Math.max(3,r.dx.length+1)}">${esc(r.dx.join('\n'))}</textarea>
+   <label style="margin-top:10px">Indicaciones (una por línea)</label><textarea id="iind" rows="${Math.max(3,r.ind.length+1)}">${esc(r.ind.map(x=>x.t).join('\n'))}</textarea>
+   ${r.ind.some(x=>x.fi)?'<p class="muted">Las que traían (Dn) quedan con su fecha de inicio calculada.</p>':''}
+   <h4>Examen físico (${Object.keys(r.ex).length} sistema(s); lo que falte se copia de la evolución anterior o del normal)</h4>${Object.keys(r.ex).map(k=>`<div class="muted"><b>${EXLBL[k]}:</b> ${esc(r.ex[k])}</div>`).join('')||'<div class="muted">Nada reconocido.</div>'}
+   <h4>Plan general</h4><div class="muted">${esc(r.plan.join(' · ')||'—')}</div>
+   <label class="chk" style="margin-top:10px"><input type="checkbox" id="ipend" checked> Agregar ${r.pend.length} pendiente(s): ${esc(r.pend.join('; ')||'—')}</label>
+   <label class="chk" style="margin-top:6px"><input type="checkbox" id="ilabs" checked> Guardar ${r.labs.length} resultado(s) de laboratorio</label>
+   <div class="row" style="margin-top:12px"><button class="btn pri" data-act="apply">Guardar como evolución del ${fmtD(IMP.fecha)}</button></div></div>`:''}`;
+}
+function addDays(iso,n){return new Date(dUTC(iso)+n*864e5).toISOString().slice(0,10)}
 
 /* ---- Nuevo ingreso ---- */
 function vNuevo(){
@@ -390,11 +465,11 @@ function vEvol(){
   const e=DB.evols[R.eid];if(!e){R.v='censo';return vCenso()}const h=DB.hosps[e.hid],p=P(h.dni),prev=e.prevId&&DB.evols[e.prevId];
   const tab=R.tab||(e.estado==='borrador'?'cambio':e.estado==='visita'?'visita':'nota');
   CUR={root:e,hid:h.id,dni:h.dni,fecha:e.fecha,preview(){e.texto=evolText(e);const el=$('#prev');if(el)el.textContent=e.texto},
-    click(a,d){
+    async click(a,d){
       if(a==='exEdit'){e.exChg[d.k]=true;rerender()}
       else if(a==='exReset'){e.ex[d.k]=DB.settings.ex[d.k];e.exChg[d.k]=true;save();rerender()}
       else if(a==='dxAdd'){e.dx.push({t:'',estado:'ESTABLE',a:'',p:''});save();rerender()}
-      else if(a==='dxDel'){const x=e.dx[+d.i];if(x.t&&!confirm('¿Quitar “'+x.t+'”? Si se resolvió, mejor marca RESUELTO.'))return;e.dx.splice(+d.i,1);save();rerender()}
+      else if(a==='dxDel'){const x=e.dx[+d.i];if(x.t&&!await ask('¿Quitar “'+x.t+'”? Si se resolvió, mejor marca RESUELTO.'))return;e.dx.splice(+d.i,1);save();rerender()}
       else if(a==='detect'){const n=detectPend(h,e.dx.map(x=>x.p).join('\n')+'\n'+e.Pextra);save();toast(n?n+' pendiente(s) agregado(s)':'Nada nuevo detectado');rerender()}
       else if(a==='copy'){copyText(evolText(e)).then(ok=>toast(ok?'Evolución copiada':'No se pudo copiar'))}
       else if(a==='estado'){e.estado=d.to;if(d.to==='final')e.closedAt=Date.now();e.texto=evolText(e);save();toast(d.to==='visita'?'Modo visita: ajusta plan, indicaciones y pendientes':'Evolución cerrada. Entra en el TXT del día');go('evol',{eid:e.id,hid:h.id,tab:d.to==='visita'?'visita':'nota'})}},
@@ -426,13 +501,13 @@ function vEvol(){
   if(tab==='nota')body=`<div class="card"><h3>Evolución</h3><pre class="note" id="prev"></pre><div class="row" style="margin-top:10px"><button class="btn pri" data-act="copy">Copiar</button><span class="sp"></span><button class="btn bad sm" onclick="delEvol('${e.id}')">Eliminar evolución</button></div></div>`;
   return head+body;
 }
-function delEvol(id){const e=DB.evols[id];if(!confirm('¿Eliminar la evolución del '+fmtD(e.fecha)+'?'))return;Object.values(DB.evols).forEach(x=>{if(x.prevId===id)x.prevId=e.prevId});delete DB.evols[id];save();go('hosp',{hid:e.hid});toast('Evolución eliminada')}
+async function delEvol(id){const e=DB.evols[id];if(!await ask('¿Eliminar la evolución del '+fmtD(e.fecha)+'?'))return;Object.values(DB.evols).forEach(x=>{if(x.prevId===id)x.prevId=e.prevId});delete DB.evols[id];save();go('hosp',{hid:e.hid});toast('Evolución eliminada')}
 
 /* ---- Labs (importar) ---- */
 let LABSTATE={text:'',rows:null,unk:[],fecha:null,busy:''};
 function vLabs(){
   const h=DB.hosps[R.hid];if(!h){R.v='censo';return vCenso()}const p=P(h.dni);const S=LABSTATE;if(!S.fecha)S.fecha=R.fecha;
-  CUR={hid:h.id,dni:h.dni,root:h,click(a,d){
+  CUR={hid:h.id,dni:h.dni,root:h,async click(a,d){
     if(a==='parse'){S.text=$('#ltext').value;const r=parseLabs(S.text,S.fecha);S.rows=r.rows.map(x=>({...x,on:true}));S.unk=r.unk;rerender();if(!S.rows.length)toast('No reconocí resultados. Revisa el texto o usa “Copiar para Claude”.')}
     else if(a==='clear'){LABSTATE={text:'',rows:null,unk:[],fecha:R.fecha,busy:''};rerender()}
     else if(a==='claude'){const t=CLAUDE_PROMPT+anonLabText($('#ltext').value);copyText(t).then(ok=>toast(ok?'Copiado sin nombre/DNI. Pégalo en Claude y pega aquí su respuesta':'No se pudo copiar'))}
@@ -441,7 +516,7 @@ function vLabs(){
         const it=L.items.find(i=>i.k===r.k);if(it)it.v=up(r.v);else L.items.push({k:r.k,v:up(r.v)})});
       h.updated=Date.now();save();toast(rows.length+' resultados guardados');LABSTATE={text:'',rows:null,unk:[],fecha:S.fecha,busy:''};
       if(R.back==='evol'){const e=evolOn(h.id,R.fecha);if(e)return go('evol',{eid:e.id,hid:h.id,tab:'cambio'})}if(R.back==='ingreso')return go('ingreso',{hid:h.id,tab:'res'});go('hosp',{hid:h.id})}
-    else if(a==='delLab'){if(!confirm('¿Eliminar estos resultados?'))return;h.labs=h.labs.filter(l=>l.id!==d.id);save();rerender()}
+    else if(a==='delLab'){if(!await ask('¿Eliminar estos resultados?'))return;h.labs=h.labs.filter(l=>l.id!==d.id);save();rerender()}
     else if(a==='back'){if(R.back==='evol'){const e=evolOn(h.id,R.fecha);if(e)return go('evol',{eid:e.id,hid:h.id,tab:'cambio'})}if(R.back==='ingreso')return go('ingreso',{hid:h.id,tab:'res'});go('hosp',{hid:h.id})}},
     mount(){$('#lfotos').onchange=ev=>ocrFiles([...ev.target.files]);$('#lpdf').onchange=ev=>pdfFiles([...ev.target.files]);
       const t=$('#ltext');t.oninput=()=>{S.text=t.value};const f=$('#lfecha');f.onchange=()=>{S.fecha=f.value}}};
@@ -499,15 +574,15 @@ function vAlta(){
   const h=DB.hosps[R.hid];if(!h||!h.alta){R.v='censo';return vCenso()}const p=P(h.dni),a=h.alta;
   CUR={root:a,hid:h.id,dni:h.dni,fecha:a.fecha,preview(){const o=$('#oprev');if(o)o.textContent=ordenText(h);const ep=$('#eprev');if(ep)ep.textContent=epicrisisData(h)},
     onField(path){if(path==='dm'||path==='h.citt')rerender()},
-    click(act){
-      if(act==='confirm'){const fl=a.ind.filter(x=>x.flag).length;if(fl&&!confirm(fl+' indicación(es) en amarillo sin revisar. ¿Confirmar el alta igual?'))return;a.confirmed=true;save();toast('Alta confirmada. El paciente sale del censo');go('censo')}
-      else if(act==='cancel'){if(!confirm('¿Anular el alta? Se borran los datos de alta de este paciente.'))return;h.alta=null;save();go('hosp',{hid:h.id})}
+    async click(act){
+      if(act==='confirm'){const fl=a.ind.filter(x=>x.flag).length;if(fl&&!await ask(fl+' indicación(es) en amarillo sin revisar. ¿Confirmar el alta igual?'))return;a.confirmed=true;save();toast('Alta confirmada. El paciente sale del censo');go('censo')}
+      else if(act==='cancel'){if(!await ask('¿Anular el alta? Se borran los datos de alta de este paciente.'))return;h.alta=null;save();go('hosp',{hid:h.id})}
       else if(act==='reopen'){a.confirmed=false;save();rerender();toast('De vuelta en el censo')}
       else if(act==='word'){a.chk['ORDEN DE ALTA']=true;save();exportOrdenes(null,[h]);rerender()}
       else if(act==='copyO'){copyText(ordenText(h)).then(o=>toast(o?'Orden copiada':'No se pudo copiar'))}
       else if(act==='copyE'){copyText(epicrisisData(h)).then(o=>toast(o?'Datos copiados':'No se pudo copiar'))}
       else if(act==='claudeE'){copyText('Con estos datos redacta en MAYÚSCULAS un resumen breve de la evolución durante la hospitalización para una epicrisis (no inventes datos):\n\n'+epicrisisData(h)).then(o=>toast(o?'Copiado sin nombre/DNI. Pégalo en Claude':'No se pudo copiar'))}
-      else if(act==='reimport'){if(!confirm('¿Reemplazar las indicaciones para casa por las de la última evolución?'))return;const f=a.fecha;const keep={control:a.control,dm:a.dm,citt:a.citt,chk:a.chk};startAlta(h,f);Object.assign(h.alta,keep);save();rerender()}},
+      else if(act==='reimport'){if(!await ask('¿Reemplazar las indicaciones para casa por las de la última evolución?'))return;const f=a.fecha;const keep={control:a.control,dm:a.dm,citt:a.citt,chk:a.chk};startAlta(h,f);Object.assign(h.alta,keep);save();rerender()}},
     mount(){bar(`<button class="btn" onclick="go('hosp',{hid:'${h.id}'})">← Hospitalización</button>`+(a.confirmed?`<button class="btn" onclick="CUR.click('reopen')">Volver al censo</button>`:`<button class="btn pri" onclick="CUR.click('confirm')">Confirmar alta</button>`))}};
   const chk=altaChecklist(h);
   return `<div class="card"><div class="pt"><div style="display:flex;align-items:center"><span class="cama">${esc(h.cama||'—')}</span><div><div class="nm">Alta · ${esc(p.nombre)}</div>
@@ -537,8 +612,8 @@ function vPaciente(){const p=DB.patients[R.dni];if(!p){R.v='pacientes';return vP
     <div class="row"><button class="btn sm pri" onclick="go('hosp',{hid:'${h.id}'})">Abrir</button><button class="btn sm" onclick="go('ingreso',{hid:'${h.id}'})">Ingreso</button>${h.alta?`<button class="btn sm" onclick="go('alta',{hid:'${h.id}'})">Alta</button>`:''}<button class="btn sm bad" onclick="delHosp('${h.id}')">Eliminar</button></div></div>
     ${ev.map(e=>`<details style="margin-top:8px"><summary>${fmtD(e.fecha)} · DH ${dh(h,e.fecha)} · ${e.estado}</summary><pre class="note">${esc(e.texto||evolText(e))}</pre>
      <div class="row" style="margin-top:8px"><button class="btn sm" onclick="R.fecha='${e.fecha}';go('evol',{eid:'${e.id}',hid:'${h.id}'})">Abrir</button><button class="btn sm" onclick="copyText(DB.evols['${e.id}'].texto||evolText(DB.evols['${e.id}'])).then(o=>toast(o?'Copiada':'Error'))">Copiar</button></div></details>`).join('')||'<div class="muted" style="margin-top:6px">Sin evoluciones.</div>'}</div>`}).join('')}`}
-function delHosp(hid){const n=evolsOf(hid).length;if(!confirm('¿Eliminar esta hospitalización con su ingreso, '+n+' evolución(es), labs, pendientes y alta?'))return;evolsOf(hid).forEach(e=>delete DB.evols[e.id]);delete DB.hosps[hid];save();rerender();toast('Hospitalización eliminada')}
-function delPatient(dni){if(!confirm('¿Eliminar a '+P(dni).nombre+' con TODAS sus hospitalizaciones? No se puede deshacer.'))return;hospsOf(dni).forEach(h=>{evolsOf(h.id).forEach(e=>delete DB.evols[e.id]);delete DB.hosps[h.id]});delete DB.patients[dni];save();go('pacientes',{q:''});toast('Paciente eliminado')}
+async function delHosp(hid,toCenso){const n=evolsOf(hid).length;if(!await ask('¿Eliminar esta hospitalización con su ingreso, '+n+' evolución(es), labs, pendientes y alta?'))return;evolsOf(hid).forEach(e=>delete DB.evols[e.id]);delete DB.hosps[hid];save();if(toCenso)go('censo');else rerender();toast('Hospitalización eliminada')}
+async function delPatient(dni){if(!await ask('¿Eliminar a '+P(dni).nombre+' con TODAS sus hospitalizaciones? No se puede deshacer.'))return;hospsOf(dni).forEach(h=>{evolsOf(h.id).forEach(e=>delete DB.evols[e.id]);delete DB.hosps[h.id]});delete DB.patients[dni];save();go('pacientes',{q:''});toast('Paciente eliminado')}
 
 /* ---- Ajustes ---- */
 function vAjustes(){const s=DB.settings;CUR={root:s,click(a){
@@ -555,8 +630,8 @@ function vAjustes(){const s=DB.settings;CUR={root:s,click(a){
   <div class="card"><h3>Respaldo</h3><p class="muted" style="margin-top:0">Todo vive solo en este iPad. Último respaldo: ${s.lastBackup?new Date(s.lastBackup).toLocaleString('es-PE'):'nunca'} · ${(bytes/1024).toFixed(0)} KB</p>
    <div class="row"><button class="btn pri" onclick="exportBackup()">Exportar respaldo</button><label class="btn" style="margin:0;color:var(--ink);font-size:16px">Importar respaldo<input type="file" accept=".json,application/json" style="display:none" onchange="importBackup(this.files[0])"></label></div></div>
   <div class="card"><h3>Zona de riesgo</h3><button class="btn bad" onclick="wipe()">Borrar todos los datos</button></div>
-  <p class="muted">Evol Reuma v1.1 · Lector de fotos: Tesseract.js · Lector de PDF: pdf.js (ambos funcionan sin internet una vez usados). Las plantillas son editables: valídalas con el servicio.</p>`}
-function wipe(){if(!confirm('¿Borrar TODOS los datos de Evol Reuma en este iPad?')||!confirm('Confirma de nuevo: no se puede deshacer.'))return;const s=DB.settings;DB=blank();DB.settings=Object.assign(s,{lastBackup:null});save();go('censo')}
+  <p class="muted">Evol Reuma v1.2 · Lector de fotos: Tesseract.js · Lector de PDF: pdf.js (ambos funcionan sin internet una vez usados). Las plantillas son editables: valídalas con el servicio.</p>`}
+async function wipe(){if(!await ask('¿Borrar TODOS los datos de Evol Reuma en este iPad?')||!await ask('Confirma de nuevo: no se puede deshacer.'))return;const s=DB.settings;DB=blank();DB.settings=Object.assign(s,{lastBackup:null});save();go('censo')}
 
 /* =====================================================================
    EXPORTAR
@@ -565,10 +640,10 @@ async function saveFile(blob,name){
   try{const f=new File([blob],name,{type:blob.type});if(navigator.canShare&&navigator.canShare({files:[f]})&&/iPad|iPhone|Macintosh/.test(navigator.userAgent)&&'ontouchend' in document){await navigator.share({files:[f],title:name});return true}}
   catch(e){if(e.name==='AbortError')return false}
   const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=name;document.body.appendChild(a);a.click();setTimeout(()=>{URL.revokeObjectURL(a.href);a.remove()},1500);return true}
-function exportTxtDia(){
+async function exportTxtDia(){
   const f=R.fecha,hs=Object.values(DB.hosps).filter(h=>(h.ingreso===f&&h.ing.estado!=='previo')||evolOn(h.id,f)||(h.alta&&h.alta.fecha===f)).sort((a,b)=>String(a.cama).localeCompare(String(b.cama),'es',{numeric:true}));
   if(!hs.length)return toast('No hay documentos para '+fmtD(f));
-  const bor=hs.map(h=>evolOn(h.id,f)).filter(e=>e&&e.estado!=='final').length;if(bor&&!confirm(bor+' evolución(es) aún no están cerradas. ¿Exportar igual?'))return;
+  const bor=hs.map(h=>evolOn(h.id,f)).filter(e=>e&&e.estado!=='final').length;if(bor&&!await ask(bor+' evolución(es) aún no están cerradas. ¿Exportar igual?'))return;
   const S=[];hs.forEach(h=>{const p=P(h.dni);S.push('════════ CAMA '+(h.cama||'—')+' · '+p.nombre+' · DNI '+p.dni+' ════════');
     if(h.ingreso===f&&h.ing.estado!=='previo')S.push('──── NOTA DE INGRESO ────',ingText(h),'');
     const e=evolOn(h.id,f);if(e)S.push('──── EVOLUCIÓN ────',evolText(e),'');
@@ -578,8 +653,8 @@ function exportTxtDia(){
 }
 function exportBackup(){const blob=new Blob([JSON.stringify({app:'evol-reuma',version:1,exported:new Date().toISOString(),data:DB})],{type:'application/json'});
   saveFile(blob,'respaldo-evol-reuma-'+todayISO()+'.json').then(ok=>{if(ok){DB.settings.lastBackup=Date.now();save();render();toast('Respaldo exportado')}})}
-function importBackup(file){if(!file)return;const r=new FileReader();r.onload=()=>{try{const j=JSON.parse(r.result);if(j.app&&j.app!=='evol-reuma')throw new Error('app');const d=j.data||j;if(!d.patients||!d.hosps||!d.evols)throw new Error('f');
-  if(!confirm('Aceptar = COMBINAR con los datos actuales (gana la versión más reciente de cada registro).'))return;let c=0;
+function importBackup(file){if(!file)return;const r=new FileReader();r.onload=async()=>{try{const j=JSON.parse(r.result);if(j.app&&j.app!=='evol-reuma')throw new Error('app');const d=j.data||j;if(!d.patients||!d.hosps||!d.evols)throw new Error('f');
+  if(!await ask('Aceptar = COMBINAR con los datos actuales (gana la versión más reciente de cada registro).'))return;let c=0;
   [['patients','dni'],['hosps','id'],['evols','id']].forEach(([k,id])=>Object.values(d[k]).forEach(x=>{const cur=DB[k][x[id]];if(!cur||(x.updated||0)>(cur.updated||0)){DB[k][x[id]]=x;c++}}));
   if(d.settings&&d.settings.catalog)DB.settings.catalog=[...new Set([...DB.settings.catalog,...d.settings.catalog])];save();render();toast('Importados '+c+' registros')}catch(e){toast(e.message==='app'?'Ese respaldo es de otra app':'Archivo no válido')}};r.readAsText(file)}
 
