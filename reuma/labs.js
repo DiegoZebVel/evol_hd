@@ -120,7 +120,7 @@ const LABORDER=LABDEF.map(d=>d[0]);
 function deacc(s){return s.normalize('NFD').replace(/[̀-ͯ]/g,'').toUpperCase()}
 const DATE_RE=/(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{2,4})/;
 function toISO(m){let y=+m[3];if(y<100)y+=2000;const mo=+m[2],d=+m[1];if(mo<1||mo>12||d<1||d>31)return null;return y+'-'+String(mo).padStart(2,'0')+'-'+String(d).padStart(2,'0')}
-const VAL_RE=/^[\s:=.\-–]*((?:NO\s+)?REACTIVO|POSITIVO|NEGATIVO|INDETERMINADO|NO\s+SE\s+OBSERVAN?|ESCAS[OA]S?|ABUNDANTES?|REGULAR(?:ES)?|AUSENTES?|[<>]\s?\d+(?:[.,]\d+)?|\d+\s?[-–]\s?\d+|\d{1,3}(?:[ ]\d{3})+(?![.,]\d)|\d+(?:[.,]\d+)?)(\s*(?:\(?\s*1\s*[\/:]\s*\d+\s*\)?|%))?/;
+const VAL_RE=/^[\s:=.\-–]*((?:NO\s+)?REACTIVO|POSITIVO|NEGATIVO|INDETERMINADO|NO\s+SE\s+OBSERVAN?|ESCAS[OA]S?|ABUNDANTES?|REGULAR(?:ES)?|AUSENTES?|1\s?\/\s?\d+(?![.,\d])|[<>]\s?\d+(?:[.,]\d+)?|\d+\s?[-–]\s?\d+|\d{1,3}(?:[ ]\d{3})+(?![.,]\d)|\d+(?:[.,]\d+)?)(\s*(?:\(?\s*1\s*[\/:]\s*\d+\s*\)?|%))?/;
 function ctxOf(line){const u=deacc(line);if(/\d/.test(u.replace(/CO2|O2|HCO3|C3|C4|24/g,''))&&u.length>30)return null;
   if(/HEMOGRAMA|HEMATOLOG/.test(u))return'HEM';if(/ORINA|SEDIMENTO|URIANALISIS/.test(u))return'ORINA';if(/GASES|GASOMETR|\bAGA\b/.test(u))return'AGA';
   if(/INMUNOLOG|SEROLOG|AUTOINMUN|REUMATOLOG/.test(u))return'INMUNO';if(/BIOQUIM/.test(u))return'BIOQ';if(/HEPATIC/.test(u))return'HEP';if(/COAGULA/.test(u))return'COAG';return null}
@@ -137,7 +137,7 @@ function parseLabs(text,defFecha){
     if(dm){const f=toISO(dm);if(f){const rest=u.replace(DATE_RE,'').replace(/FECHA( DE)?( TOMA| RESULTADO| EMISION| MUESTRA| INGRESO)?|HORA|\d{1,2}:\d\d(:\d\d)?/g,'').replace(/[\s:,\-]+/g,' ').trim();
       fecha=f;
       if(rest.length<25&&!/\d/.test(rest)){const c=ctxOf(rest);if(c)ctx=c;return}
-      u=u.replace(DATE_RE,'').replace(/^[\s:,.\-]+/,'')}}
+      u=u.replace(DATE_RE,'').replace(/^[\s:,.\-•·*]+/,'')}}
     const c=ctxOf(line);if(c&&!/\d/.test(u.replace(/CO2|O2|HCO3|C3|C4|24/g,''))){ctx=c;return}
     const lead=u.match(/^(AGA|GASES ARTERIALES|HEMOGRAMA|ORINA|SEDIMENTO URINARIO|EXAMEN DE ORINA|PERFIL INMUNOLOGICO|INMUNOLOGIA|PERFIL HEPATICO|PERFIL MINERAL|BIOQUIMICA)\s*:\s*/);
     if(lead){const c2=ctxOf(lead[1]);if(c2)ctx=c2;u=u.slice(lead[0].length)}
@@ -219,7 +219,7 @@ function dm(iso){const[y,m,d]=iso.split('-');return d+'/'+m}
 function vEv(k,v){v=String(v??'').trim();const d=LABMAP[k];
   v=v.replace(/^(NO REACTIVO|NEGATIVO|NEG)\b\.?/i,'(-)').replace(/^(POSITIVO|REACTIVO|POS)\b\.?/i,'(+)');
   v=sc(v).replace(/^\((\+|-)\)\s*[,:]?\s*/,'($1) ').replace(/\bIG([GMAE])\b/g,'Ig$1').trim();
-  if(d&&d.u==='%'&&/^[\d.,<>]+$/.test(v))v+='%';return v}
+  v=v.replace(/^(\d{1,3}) (\d{3})$/,'$1$2');if(d&&d.u==='%'&&/^[\d.,<>]+$/.test(v))v+='%';return v}
 function itemEv(it){if(/^TXT_/.test(it.k))return null;const n=SHORT[it.k]||(LABMAP[it.k]?sc(LABMAP[it.k].n):sc(it.n||it.k));return n+' '+vEv(it.k,it.v)}
 // labs:[{fecha,area,items}] → {lab:[líneas], img:[], proc:[]}
 function fmtLabsEvol(labs){
@@ -264,8 +264,8 @@ function parseEvLabs(lines,ref){const rows=[],texts=[];let fecha=ref;
 function parseEvTexts(lines,ref){let fecha=ref;const out=[];
   const yr=(d,m)=>{let y=+ref.slice(0,4);let iso=y+'-'+String(m).padStart(2,'0')+'-'+String(d).padStart(2,'0');if(iso>ref)iso=(y-1)+iso.slice(4);return iso};
   lines.forEach(raw=>{let l=raw.replace(/\s+/g,' ').trim().replace(/^[-•·*]\s*/,'');if(!l)return;let f=fecha;
-    const m=l.match(/^(\d{1,2})\/(\d{1,2})(?:\/(\d{2,4}))?\s*[:\-]?\s*/);if(m){f=m[3]?toISO([0,m[1],m[2],m[3]]):yr(+m[1],+m[2]);l=l.slice(m[0].length)}
-    const i=l.indexOf(':');if(i>1&&i<60)out.push({fecha:f,titulo:l.slice(0,i).trim(),texto:l.slice(i+1).trim()});else if(out.length)out[out.length-1].texto+=' '+l;else out.push({fecha:f,titulo:'Informe',texto:l})});
+    const m=l.match(/^(\d{1,2})\/(\d{1,2})(?:\/(\d{2,4}))?\s*[:\-,]?\s*/);if(m){f=m[3]?toISO([0,m[1],m[2],m[3]]):yr(+m[1],+m[2]);l=l.slice(m[0].length)}
+    const i=l.indexOf(':');if(i>1&&i<80){let ti=l.slice(0,i).trim(),tx=l.slice(i+1).trim();const c=ti.lastIndexOf(',');if(c>0){tx='('+ti.slice(0,c).trim()+') '+tx;ti=ti.slice(c+1).trim()}out.push({fecha:f,titulo:ti,texto:tx})}else if(out.length)out[out.length-1].texto+=' '+l;else out.push({fecha:f,titulo:'Informe',texto:l})});
   return out}
 
 /* ===== Lector específico de reportes de laboratorio del ESSI (PDF con texto) ===== */
@@ -313,8 +313,19 @@ function essiParse(rows){
       if(tx&&!special(e,tx,inf.fecha)&&!(e.n&&/^(NHR|NO)\b/i.test(tx))){const it=essiImgTitle(e);let ti=inf.title||it||short(e)+(smp?' ('+up(smp)+')':'');const ind=(e.ind||'').trim();if(ind&&!inf.title&&!it&&/LIQU?I?DO|ORINA|SANGRE|HECES|ESPUTO|SECRECION|LCR|BIOPSIA/.test(deacc(ind))&&!deacc(tx).includes(deacc(ind).slice(0,10)))ti+=' ('+up(ind)+')';
         if(/^VER EN INFORME ADJUNTO/i.test(deacc(tx)))tx='VER INFORME ADJUNTO';
         if(/VER INFORME EN PAGINA WEB/i.test(deacc(tx)))tx='VER INFORME EN EL LABORATORIO CENTRAL';out.texts.push({fecha:inf.fecha||solic,titulo:up(ti),texto:up(tx),concl:up(it?essiConcl(tx):''),img:!!it,_e:e})}}inf=null};
+  // nombre en formato "Muestra en ventana emergente": a veces cae en una fila vecina
+  for(let i=0;i<rows.length&&i<40;i++){const it=rows[i];const lab=it.find(x=>/^Apellidos y Nombres/i.test(x.s.trim()));if(!lab)continue;
+    const inRow=it.map(x=>x.s).join(' ').match(/Apellidos y Nombres\s*:?\s*(.+?)\s+(?:Nro\.? Historia|Fecha de Vigencia|Vigencia)/i);
+    if(inRow&&/^[A-ZÑÁÉÍÓÚ' ]{5,}$/.test(inRow[1].trim())){out.nombre=inRow[1].trim();break}
+    const other=it.find(x=>x!==lab&&/Vigencia|Historia/i.test(x.s)),xmax=other?other.x:1e9;
+    const cand=[rows[i],rows[i-1],rows[i+1]].filter(Boolean).flat().filter(x=>x.x>lab.x+5&&x.x<xmax&&/^[A-ZÑÁÉÍÓÚ' ]{5,}$/.test(x.s.trim())&&!/APELLIDOS|DATOS DEL|^\s*(FEMENINO|MASCULINO)\s*$/.test(x.s));
+    if(cand.length){out.nombre=cand.sort((a,b)=>a.x-b.x).map(x=>x.s.trim()).join(' ');break}}
   rows.forEach(r=>{let it=r.filter(i=>i.s.trim()).map(i=>({x:i.x,s:i.s.trim()}));if(!it.length)return;const t0=it.map(i=>i.s).join(' ');
     if(!out.dni){const dm=t0.match(/D\.N\.I\.\s*(\d{8})/);if(dm)out.dni=dm[1]}
+    if(!out.nombre){const nm=t0.match(/Apellidos y Nombres\s*:?\s*(.+?)\s+Nro\.? Historia/i);if(nm)out.nombre=up(nm[1].trim())}
+    if(!out.sexo){const sx=t0.match(/Sexo\s*:?\s*(FEMENINO|MASCULINO)/i);if(sx)out.sexo=/^F/i.test(sx[1])?'F':'M'}
+    if(!out.edad){const ed=t0.match(/\bEdad\s*:?\s*(\d{1,3})\s*A\b/i);if(ed)out.edad=ed[1]}
+    if(!out.fing){const fi=t0.match(/Fecha de Ingreso\s*:?\s*(\d{1,2}\/\d{1,2}\/\d{4})/i);if(fi)out.fing=toISO(fi[1].match(DATE_RE))}
     if(ESSI_NOISE.test(t0))return;
     if(/^Indicaciones$/i.test(it[0].s)){if(exam)exam.ind=it.slice(1).map(i=>i.s).join(' ');return}
     if(/^Cod\. Resultado/i.test(it[0].s)){if(exam)exam.cod=it.slice(1).map(i=>i.s).join(' ');return}
@@ -364,7 +375,7 @@ function groupTexts(texts){const out=[],map={};texts.forEach(t=>{const m=deacc(t
   if(!map[key]){map[key]={fecha:t.fecha,titulo:fl,texto:tx};out.push(map[key])}else map[key].texto+='; '+tx});return out}
 
 /* junta los resultados de varios PDFs del ESSI */
-function combineEssi(list){const all={rows:[],texts:[],pend:[],unk:[],dnis:[...new Set(list.map(r=>r.dni).filter(Boolean))]};list.forEach(r=>['rows','texts','pend','unk'].forEach(k=>all[k].push(...r[k])));
+function combineEssi(list){const all={rows:[],texts:[],pend:[],unk:[],dnis:[...new Set(list.map(r=>r.dni).filter(Boolean))],nombre:(list.find(r=>r.nombre)||{}).nombre||'',sexo:(list.find(r=>r.sexo)||{}).sexo||'',edad:(list.find(r=>r.edad)||{}).edad||'',fing:list.map(r=>r.fing).filter(Boolean).sort()[0]||''};list.forEach(r=>['rows','texts','pend','unk'].forEach(k=>all[k].push(...r[k])));
   all.rows=dedupeRows(all.rows);all.texts=groupTexts(all.texts.filter((t,i,a)=>a.findIndex(u=>u.fecha===t.fecha&&u.titulo===t.titulo&&u.texto===t.texto)===i));
   const keyOf=t=>ESSI_MAP[deacc(t)]||findKey(deacc(t),null);
   all.pend=all.pend.filter((p,i,a)=>{const k=keyOf(p.titulo);if(k&&all.rows.some(r=>r.k===k&&r.fecha>=p.solic))return false;if(all.texts.some(t=>deacc(t.titulo+' '+t.texto).includes(deacc(p.titulo))&&t.fecha>=p.solic)&&!/BK/.test(p.titulo))return false;return a.findIndex(q=>q.titulo===p.titulo&&q.solic===p.solic)===i});

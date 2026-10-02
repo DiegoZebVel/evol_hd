@@ -184,7 +184,7 @@ function startAlta(h,fecha){
   h.alta={fecha,dx:dx.join('\n'),ind:src.filter(x=>x.t.trim()).map(x=>({id:uid(),t:x.t,flag:flagInd(x.t)})),control:DB.settings.control,dm:'',citt:false,chk:{},confirmed:false};
 }
 function altaChecklist(h){const a=h.alta,L=DB.settings.chkAlta.slice();if(a.dm)L.push('DESCANSO MÉDICO');if(h.citt||a.citt)L.push('CITT EN ESSI');return L}
-function ordenText(h){const p=P(h.dni),a=h.alta,L=['ORDEN DE ALTA '+DB.settings.servicio,'PACIENTE: '+p.nombre,'DNI: '+p.dni+'   CAMA: '+(h.cama||'—'),'DIAGNÓSTICO:'];
+function ordenText(h){const p=P(h.dni),a=h.alta,L=['ORDEN DE ALTA '+DB.settings.servicio,'PACIENTE: '+p.nombre,'DNI: '+(isTmp(p.dni)?'':p.dni)+'   CAMA: '+(h.cama||'—'),'DIAGNÓSTICO:'];
   lines(a.dx).forEach((x,i)=>L.push((i+1)+'. '+x));L.push('FECHA DE INGRESO: '+fmtDot(h.ingreso)+'   FECHA DE EGRESO: '+fmtDot(a.fecha),'INDICACIONES DE ALTA:');
   altaInd(h).forEach(x=>L.push(x.t.trim()));altaExtra(h).forEach(x=>L.push('• '+x));return up(L.join('\n'))}
 function epicrisisData(h){
@@ -213,7 +213,7 @@ function render(){
   const nav={censo:['censo','nuevo','hosp','importEv','ingreso','evol','labs','alta'],pend:['pendientes'],pac:['pacientes','paciente'],aj:['ajustes']};
   Object.keys(nav).forEach(k=>$('#nav-'+k).classList.toggle('on',nav[k].includes(R.v)));
   CUR=null;document.querySelector('.bar')?.remove();
-  const V={importEv:vImport,hosp:vHosp,censo:vCenso,nuevo:vNuevo,ingreso:vIngreso,evol:vEvol,labs:vLabs,alta:vAlta,pendientes:vPendientes,pacientes:vPacientes,paciente:vPaciente,ajustes:vAjustes}[R.v];
+  const V={recibir:vRecibir,importEv:vImport,hosp:vHosp,censo:vCenso,nuevo:vNuevo,ingreso:vIngreso,evol:vEvol,labs:vLabs,alta:vAlta,pendientes:vPendientes,pacientes:vPacientes,paciente:vPaciente,ajustes:vAjustes}[R.v];
   $('#app').innerHTML=V();
   if(CUR&&CUR.mount)CUR.mount();
   if(CUR&&CUR.preview)CUR.preview();
@@ -300,7 +300,7 @@ function vCenso(){
     const eb=e?{borrador:'<span class="badge b-pend">Evol: borrador</span>',visita:'<span class="badge b-ok">Evol: post-visita</span>',final:'<span class="badge b-copy">Evol: final</span>'}[e.estado]:(m==='evol'?'<span class="badge b-alta">Sin evolución hoy</span>':'');
     const ib=h.ing.estado==='borrador'?'<span class="badge b-pend">Ingreso incompleto</span>':'';
     return `<div class="card" style="cursor:pointer" onclick="go('hosp',{hid:'${h.id}'})"><div class="pt"><div style="display:flex;align-items:center"><span class="cama">${esc(h.cama||'—')}</span><div><div class="nm">${esc(p.nombre)}</div>
-    <div class="muted">DNI ${esc(p.dni)}${pLine(p)?' · '+esc(pLine(p)):''} · DH ${dh(h,R.fecha)}${n?' · '+n+' pendiente(s)':''}</div></div></div>
+    <div class="muted">${dniTag(p.dni)}${pLine(p)?' · '+esc(pLine(p)):''} · DH ${dh(h,R.fecha)}${n?' · '+n+' pendiente(s)':''}</div></div></div>
     <div class="row">${ib}${eb}${h.alta?'<span class="badge b-ok">Alta en proceso</span>':''}<span class="muted" style="font-size:22px">›</span></div></div></div>`}).join('');
   return backupBanner()+`<div class="card"><div class="row"><div style="flex:1;min-width:180px"><label>Fecha de trabajo</label><input type="date" value="${R.fecha}" onchange="R.fecha=this.value||todayISO();render()"></div>
    <div class="muted" style="align-self:flex-end;padding-bottom:10px">${hs.length} en censo</div></div></div>
@@ -337,7 +337,8 @@ function vHosp(){
   const needImport=g.estado==='previo'&&!ev.length&&!probLines(g.prob).length;
   const labs=h.labs.slice().sort((x,y)=>y.fecha.localeCompare(x.fecha)).slice(0,3);
   return `<div class="card pt"><div style="display:flex;align-items:center"><span class="cama">${esc(h.cama||'—')}</span><div><div class="nm">${esc(p.nombre)}</div>
-   <div class="muted">DNI ${esc(p.dni)}${pLine(p)?' · '+esc(pLine(p)):''} · Ingreso ${fmtD(h.ingreso)} · <b>DH ${dh(h,R.fecha)}</b></div></div></div></div>
+   <div class="muted">${dniTag(p.dni)}${pLine(p)?' · '+esc(pLine(p)):''} · Ingreso ${fmtD(h.ingreso)} · <b>DH ${dh(h,R.fecha)}</b></div></div></div></div>
+  ${isTmp(h.dni)?`<div class="alert a-warn"><div class="grid w2" style="align-items:end"><div><label>Falta el DNI (se toma solo al subir un PDF del ESSI en Labs)</label><input inputmode="numeric" placeholder="DNI / CE" onchange="setDniUI('${h.id}',this.value)"></div>${F('pat.nombre','Apellidos y nombres','data-up')}</div></div>`:''}
   ${needImport?`<div class="alert a-warn">Falta su evolución previa. <button class="btn sm pri" onclick="go('importEv',{hid:'${h.id}',first:true})">Subir evolución previa</button></div>`:''}
   <div class="row" style="align-items:stretch;margin-bottom:12px">
    ${step('ingreso',1,'INGRESO',sIng,`go('ingreso',{hid:'${h.id}'})`,g.estado==='previo'?'Ver datos':'Nota de ingreso')}
@@ -441,37 +442,115 @@ function vImport(){
 }
 function addDays(iso,n){return new Date(dUTC(iso)+n*864e5).toISOString().slice(0,10)}
 
-/* ---- Nuevo ingreso ---- */
+/* ---- Agregar paciente: sin registro previo. DNI y nombre se completan después (o solos desde el ESSI) ---- */
+const isTmp=d=>/^TMP-/.test(String(d||''));
+function dniTag(d){return isTmp(d)?'<span style="color:var(--bad)">sin DNI</span>':'DNI '+esc(d)}
+function tmpPatient(nombre){const dni='TMP-'+uid();DB.patients[dni]={dni,nombre:nombre||'SIN NOMBRE',edad:'',sexo:'',natural:'',procedencia:'',instruccion:'',ocupacion:'',civil:'',religion:'',updated:Date.now()};return dni}
+// Asigna DNI real a una hospitalización; si el DNI ya existe (paciente conocido) une los datos y reutiliza sus antecedentes
+function assignDni(hid,dni,ex){ex=ex||{};dni=String(dni||'').trim().replace(/\s/g,'').toUpperCase();const h=DB.hosps[hid];if(!h)return false;
+  if(!/^[0-9A-Z]{6,12}$/.test(dni)||!/\d/.test(dni)){toast('DNI/CE no válido');return false}
+  const old=h.dni,op=DB.patients[old];
+  if(old!==dni){const other=Object.values(DB.hosps).find(x=>x.id!==h.id&&x.dni===dni&&!(x.alta&&x.alta.confirmed));if(other){toast('Ese DNI ya está en el censo (cama '+(other.cama||'—')+')');return false}
+    let p=DB.patients[dni];
+    if(p){if(op)Object.keys(op).forEach(k=>{if(!['dni','nombre'].includes(k)&&op[k]&&!p[k])p[k]=op[k]});if(op&&op.nombre&&!/^(SIN NOMBRE|CAMA )/.test(op.nombre)&&(!p.nombre||/^(SIN NOMBRE|CAMA )/.test(p.nombre)))p.nombre=op.nombre;
+      const prev=hospsOf(dni).find(x=>x.id!==h.id);if(prev&&!Object.values(h.ing.ant).some(v=>String(v||'').trim()))h.ing.ant=clone(prev.ing.ant);toast('Paciente conocido: se unieron sus datos')}
+    else{p=Object.assign({},op||{},{dni});DB.patients[dni]=p}
+    h.dni=dni;Object.values(DB.evols).forEach(e=>{if(e.hid===h.id)e.dni=dni});
+    if(isTmp(old)&&!Object.values(DB.hosps).some(x=>x.dni===old))delete DB.patients[old]}
+  const p=DB.patients[dni];if(ex.nombre&&(!p.nombre||/^(SIN NOMBRE|CAMA )/.test(p.nombre)))p.nombre=up(ex.nombre);if(ex.sexo&&!p.sexo)p.sexo=ex.sexo;if(ex.edad&&!p.edad)p.edad=String(ex.edad);
+  p.updated=Date.now();h.updated=Date.now();save();return true}
+function setDniUI(hid,v){if(assignDni(hid,v)){rerender();toast('DNI guardado')}}
 function vNuevo(){
-  const modo=R.modo;
-  if(!modo)return `<div class="card"><h2>Agregar paciente</h2><p class="muted" style="margin-top:0">¿Cómo llega este paciente?</p>
-   <div class="grid w2" style="margin-top:12px"><button class="btn pri" style="min-height:100px;font-size:18px" onclick="R.modo='nuevo';render()">🆕 Nuevo ingreso<br><span style="font-size:13px;font-weight:400">Hago la nota de ingreso completa</span></button>
-   <button class="btn" style="min-height:100px;font-size:18px" onclick="R.modo='previo';render()">📋 Ya está evolucionado<br><span style="font-size:13px;font-weight:400">Lo recibo: subo su última evolución y sigo desde ahí</span></button></div></div>`;
-  const q=R.q.trim(),ql=deacc(q);const res=q?Object.values(DB.patients).filter(p=>p.dni.includes(q)||deacc(p.nombre).includes(ql)).slice(0,15):[];
-  const isDoc=/^[0-9A-Za-z]{6,12}$/.test(q)&&/\d/.test(q);
-  CUR={mount(){const i=$('#q');i.focus();i.setSelectionRange(i.value.length,i.value.length)}};
-  return `<div class="card"><div class="pt"><h2 style="margin:0">${modo==='previo'?'📋 Ya está evolucionado':'🆕 Nuevo ingreso'}</h2><button class="btn sm" onclick="R.modo=null;render()">Cambiar</button></div>
-   <p class="muted">${modo==='previo'?'Registra al paciente; luego subes su última evolución y la app llena problemas, examen, indicaciones, pendientes y labs.':'Registra al paciente; luego te pide la nota de ingreso completa.'}</p><label>Buscar por DNI o apellidos</label><input id="q" value="${esc(R.q)}" autocomplete="off" oninput="R.q=this.value;render()"></div>
-  ${res.map(p=>{const hs=hospsOf(p.dni),act=hs.find(h=>!(h.alta&&h.alta.confirmed));return `<div class="card">
-   <div class="alert a-info" style="margin-bottom:10px">${act?'Ya está en el censo (cama '+esc(act.cama)+').':'Paciente conocido: '+hs.length+' hospitalización(es) previa(s)'+(hs[0]?', la última del '+fmtD(hs[0].ingreso):'')+'. Se reutiliza su filiación y antecedentes.'}</div>
-   <div class="pt"><div><div class="nm">${esc(p.nombre)}</div><div class="muted">DNI ${esc(p.dni)}${pLine(p)?' · '+esc(pLine(p)):''}</div></div>
-   ${act?`<button class="btn pri" onclick="go('hosp',{hid:'${act.id}'})">Abrir</button>`:''}</div>
-   ${act?'':`<div class="grid" style="margin-top:10px"><div><label>Cama</label><input id="c_${esc(p.dni)}" autocomplete="off"></div><div><label>${modo==='previo'?'Fecha real de ingreso':'Fecha de ingreso'}</label><input type="date" id="i_${esc(p.dni)}" value="${modo==='previo'?'':R.fecha}"></div></div>
-   <div class="row" style="margin-top:10px"><button class="btn pri" onclick="reingreso('${esc(p.dni)}')">${modo==='previo'?'Registrar':'Ingresar'}</button></div>`}</div>`}).join('')}
-  ${DB.patients[q]?'':`<div class="card"><h2>Paciente nuevo</h2><div class="grid w2"><div><label>DNI / CE</label><input id="nDni" value="${isDoc?esc(q):''}" inputmode="numeric" autocomplete="off"></div>
-   <div><label>Apellidos y nombres</label><input id="nNom" value="${isDoc?'':esc(up(q))}" autocomplete="off" autocapitalize="characters"></div></div>
-   <div class="grid" style="margin-top:10px"><div><label>Edad</label><input id="nEdad" inputmode="numeric"></div><div><label>Sexo</label><select id="nSexo"><option value="">—</option><option value="M">Varón</option><option value="F">Mujer</option></select></div>
-   <div><label>Cama</label><input id="nCama" autocomplete="off"></div><div><label>${modo==='previo'?'Fecha real de ingreso':'Fecha de ingreso'}</label><input type="date" id="nIng" value="${modo==='previo'?'':R.fecha}"></div></div>
-   <div class="row" style="margin-top:12px"><button class="btn pri" onclick="createPatient()">${modo==='previo'?'Registrar y subir evolución →':'Registrar y hacer nota de ingreso →'}</button><button class="btn" onclick="go('censo')">Cancelar</button></div></div>`}`;
-}
-function createPatient(){const dni=$('#nDni').value.trim().replace(/\s/g,''),nom=up($('#nNom').value).trim().replace(/\s+/g,' ');
-  if(!/^[0-9A-Za-z]{6,12}$/.test(dni))return toast('Ingresa un DNI/CE válido');if(!nom)return toast('Ingresa apellidos y nombres');if(DB.patients[dni])return toast('Ese DNI ya existe; búscalo arriba');
-  const ing=$('#nIng').value;if(!ing)return toast('Ingresa la fecha de ingreso');
-  DB.patients[dni]={dni,nombre:nom,edad:$('#nEdad').value.trim(),sexo:$('#nSexo').value,natural:'',procedencia:'',instruccion:'',ocupacion:'',civil:'',religion:'',updated:Date.now()};
-  if(ing>R.fecha)return toast('La fecha de ingreso no puede ser posterior a la fecha de trabajo');const pv=R.modo==='previo';const h=newHosp(dni,$('#nCama').value,ing,pv);save();if(pv)go('importEv',{hid:h.id,first:true});else go('ingreso',{hid:h.id})}
-function reingreso(dni){const ing=$('#i_'+dni).value;if(!ing)return toast('Ingresa la fecha de ingreso');const prev=hospsOf(dni)[0];
-  const pv=R.modo==='previo';const h=newHosp(dni,$('#c_'+dni).value,ing,pv);if(prev)h.ing.ant=clone(prev.ing.ant);
-  save();if(pv)go('importEv',{hid:h.id,first:true});else go('ingreso',{hid:h.id})}
+  return `<div class="card"><h2>Agregar paciente</h2><p class="muted" style="margin-top:0">¿Cómo llega este paciente? (DNI y nombre se completan después o salen solos de los PDF del ESSI)</p>
+   <div class="grid w2" style="margin-top:12px"><button class="btn pri" style="min-height:110px;font-size:18px" onclick="startNuevo()">🆕 Nuevo ingreso<br><span style="font-size:13px;font-weight:400">Abre la nota de ingreso directamente</span></button>
+   <button class="btn" style="min-height:110px;font-size:18px" onclick="REC=null;go('recibir')">📋 Ya está evolucionado<br><span style="font-size:13px;font-weight:400">Subo su nota de ingreso, última evolución y análisis → la app arma la evolución de hoy</span></button></div></div>`}
+function startNuevo(){const dni=tmpPatient();const h=newHosp(dni,'',R.fecha,false);save();go('ingreso',{hid:h.id})}
+
+/* ---- Recibir paciente ya evolucionado ---- */
+let REC=null;
+function recBlank(){return {ing:'',ev:'',lab:'',evFecha:addDays(R.fecha,-1),essi:null,cama:'',dni:'',nombre:'',edad:'',sexo:'',fing:'',pLab:[]}}
+// Nota de ingreso en el formato del servicio → campos
+const ING_SEC=[['ant',/^ANTECEDENTES\b\s*:?/],['hea',/^HISTORIA (DE LA )?ENFERMEDAD( ACTUAL)?\b\s*:?/],['ex',/^(AL )?EXAMEN FISICO\b\s*:?/],['lab',/^(LAB|LABORATORIO|EXAMENES AUXILIARES|FUNCION RENAL|PERFIL INMUNOLOGICO)\b\s*:?/],
+ ['img',/^IMAGENES\b\s*:?/],['ic',/^INTERCONSULTAS\b\s*:?/],['prob',/^(PROBLEMAS|DIAGNOSTICOS?)\b\s*:?/],['plan',/^PLAN\b\s*:?/],['ind',/^INDICACIONES\b\s*:?/]];
+function parseIngNote(text,ref){const out={pre:[],ant:[],hea:[],ex:[],lab:[],img:[],ic:[],prob:[],plan:[],ind:[]};let sec='pre';
+  String(text||'').split(/\r?\n/).forEach(raw=>{let l=raw.replace(/\t/g,' ').replace(/[ ]+/g,' ').trim();const u=deacc(l);
+    for(const[k,re]of ING_SEC){const m=u.match(re);if(m&&(k!=='lab'||!/\d/.test(u.slice(m[0].length,m[0].length+3)))&&(k!=='plan'||u.length<40)){sec=k;l=l.slice(m[0].length).replace(/^[\s:]+/,'').trim();break}}
+    out[sec].push(l)});
+  const r={fil:{},ant:{patol:'',quir:'',hosp:'',alerg:'',med:''},ex:{},fv:{}};const U=up(out.pre.join(' ')),g=re=>{const m=U.match(re);return m?m[1].trim():''};
+  r.fil.edad=g(/DE (\d{1,3}) AÑOS/);const sx=g(/PACIENTE (VAR[ÓO]N|MUJER)/);r.fil.sexo=sx?(/^M/.test(sx)?'F':'M'):'';
+  r.fil.natural=g(/NATURAL DE ([^,.]+?)(?= Y PROCEDENTE|,|\.)/);r.fil.procedencia=g(/(?:Y |, )PROCEDENTE DE ([^,.]+)/);r.fil.instruccion=g(/GRADO DE INSTRUCCI[ÓO]N ([^,.]+)/);
+  r.fil.ocupacion=g(/OCUPACI[ÓO]N ([^,.]+)/);r.fil.civil=g(/ESTADO CIVIL ([^,.]+)/);r.fil.religion=g(/RELIGI[ÓO]N ([^,.]+)/);
+  r.basal=g(/ESTADO BASAL ([^.]+)/);r.servicio=g(/INGRESA PROCEDENTE (?:DEL SERVICIO DE |DE |DEL )?([^,.]+)/);r.disp=g(/INGRESA PROCEDENTE [^,.]+,\s*([^.]+)/);
+  r.autor=(out.pre.find(x=>/^M[RC]\s/i.test(x))||'');
+  let k='patol';const pat=[];out.ant.filter(Boolean).forEach(l=>{const u=deacc(l);const m=u.match(/^(QUIRURGICOS?|HOSPITALIZACIONES|ALERGIAS?|MEDICACION HABITUAL|MEDICAMENTOS? HABITUALES?)\s*:\s*/);
+    if(m){k=/^Q/.test(m[1])?'quir':/^H/.test(m[1])?'hosp':/^A/.test(m[1])?'alerg':'med';l=l.slice(m[0].length)}if(k==='patol')pat.push(l);else r.ant[k]=(r.ant[k]?r.ant[k]+' ':'')+l});
+  r.ant.patol=pat.join('\n');Object.keys(r.ant).forEach(x=>r.ant[x]=up(r.ant[x].trim()));
+  r.hea=up(out.hea.join('\n').replace(/^\n+|\n+$/g,'').replace(/\n{3,}/g,'\n\n'));
+  out.ex.filter(Boolean).forEach(l=>{const u=deacc(l);if(/^(FUNCIONES VITALES|FV|SIGNOS VITALES)\b/.test(u)){const n=re=>{const m=u.match(re);return m?m[1]:''};r.fv={pas:n(/PA\s*:?\s*(\d{2,3})\s*\//),pad:n(/PA\s*:?\s*\d{2,3}\s*\/\s*(\d{2,3})/),fc:n(/FC\s*:?\s*(\d{2,3})/),fr:n(/FR\s*:?\s*(\d{1,2})/),t:n(/T°?\s*:?\s*(\d{2}(?:[.,]\d)?)\s*°?C/),sat:n(/SAT\s*O?2?\s*:?\s*(\d{2,3})\s*%/)};return}
+    for(const[kk,re]of EXRE){const m=u.match(re);if(m&&/:/.test(u.slice(0,40))){r.ex[kk]=up(l.slice(l.indexOf(':')+1).trim());return}}});
+  const labTxt=out.lab.filter(Boolean);r.labs=parseLabs(labTxt.join('\n'),ref).rows;r.txt=[];const ot=[];
+  labTxt.forEach(l=>{const c=l.replace(/^[•·\-*]\s*/,'');if(parseLabs(c,ref).rows.length)return;if(/^\d{1,2}\/\d{1,2}(\/\d{2,4})?\s*[:,]/.test(c)&&/:/.test(c.replace(/^[\d\/]+\s*[:,]/,'')))r.txt.push(...parseEvTexts([c],ref));else if(c&&!/^(LAB|FUNCION RENAL|PERFIL)/i.test(deacc(c)))ot.push(l)});
+  r.otros=up(ot.join('\n'));r.txt.push(...parseEvTexts(out.img.filter(Boolean),ref));
+  r.ic=up(out.ic.filter(Boolean).join('\n'));r.prob=up(out.prob.filter(Boolean).join('\n'));r.plan=up(out.plan.filter(Boolean).join('\n'));
+  r.ind=out.ind.filter(Boolean).map(stripNum).filter(Boolean).map(t=>({id:uid(),t:up(t.replace(/\.$/,'')),fi:''}));
+  return r}
+function addTxtLab(h,t){const T=String(t.texto||'').trim();if(!T)return false;if(h.labs.some(l=>l.items.some(i=>/^TXT_/.test(i.k)&&deacc(i.n||'')===deacc(t.titulo)&&deacc(i.v||'').slice(0,40)===deacc(T).slice(0,40))))return false;
+  let L=h.labs.find(l=>l.fecha===t.fecha&&l.area==='OTROS');if(!L){L={id:uid(),fecha:t.fecha,area:'OTROS',items:[],created:0};h.labs.push(L)}L.items.push({k:'TXT_'+uid(),n:t.titulo,v:T});return true}
+function addRowLab(h,row,over){const area=LABMAP[row.k]?LABMAP[row.k].a:'OTROS';let L=h.labs.find(l=>l.fecha===row.fecha&&l.area===area);if(!L){L={id:uid(),fecha:row.fecha,area,items:[],created:0};h.labs.push(L)}
+  const it=L.items.find(i=>i.k===row.k);if(it){if(over)it.v=up(row.v);return false}L.items.push({k:row.k,v:up(row.v)});return true}
+function recParse(){const S=REC;const ref=S.fing||R.fecha;
+  S.pIng=S.ing.trim()?parseIngNote(S.ing,ref):null;S.pEv=S.ev.trim()?parseEvol(S.ev,S.evFecha):null;S.pLab=S.lab.trim()?parseLabs(S.lab,R.fecha).rows:[];
+  const E=S.essi||{};if(!S.dni&&E.dnis&&E.dnis.length===1)S.dni=E.dnis[0];if(!S.nombre&&E.nombre)S.nombre=E.nombre;
+  if(!S.edad)S.edad=(S.pEv&&S.pEv.edad)||(S.pIng&&S.pIng.fil.edad)||E.edad||'';if(!S.sexo)S.sexo=(S.pIng&&S.pIng.fil.sexo)||E.sexo||'';
+  if(!S.cama&&S.pEv&&S.pEv.cama)S.cama=S.pEv.cama;if(!S.fing&&E.fing)S.fing=E.fing}
+function vRecibir(){if(!REC)REC=recBlank();const S=REC;
+  const box=(k,title,hint)=>`<div class="card"><h3>${title}</h3><p class="muted" style="margin-top:0">${hint}</p>
+   <div class="row"><label class="btn" style="margin:0;color:var(--ink);font-size:16px" onclick="TXT_TARGET='${k}'">📷 Foto(s)<input type="file" accept="image/*" multiple style="display:none" onchange="TXT_TARGET='${k}';ocrFiles([...this.files])"></label>
+   <label class="btn" style="margin:0;color:var(--ink);font-size:16px" onclick="TXT_TARGET='${k}'">📄 PDF<input type="file" accept="application/pdf" multiple style="display:none" onchange="TXT_TARGET='${k}';pdfFiles([...this.files])"></label><span class="muted">o pega el texto</span></div>
+   <textarea id="rec_${k}" rows="6" style="margin-top:8px" oninput="REC.${k}=this.value" placeholder="Pega aquí…">${esc(S[k])}</textarea></div>`;
+  CUR={root:null,click(a){if(a==='parse'){recParse();rerender();toast('Listo: revisa los datos y arma la evolución')}else if(a==='build')recBuild();else if(a==='clear'){REC=recBlank();rerender()}else if(a==='clrEssi'){S.essi=null;rerender()}},mount(){TXT_TARGET=null}};
+  const E=S.essi;
+  return `<div class="card"><div class="pt"><h2 style="margin:0">📋 Paciente ya evolucionado</h2><button class="btn sm" onclick="go('nuevo')">← Cambiar</button></div>
+   <p class="muted">Sube lo que tengas (todo es opcional). Con eso la app llena su ficha, problemas, examen, labs, imágenes y pendientes, y arma la evolución de hoy en el formato del servicio.</p>
+   <div id="lbusy" class="muted"></div><div class="prog" hidden><i id="lprog"></i></div></div>
+  ${box('ing','1 · Nota de ingreso','Filiación, antecedentes, historia, examen, labs e imágenes del ingreso, problemas y plan.')}
+  ${box('ev','2 · Última evolución','Problemas, S/O, labs “dd/mm”, imágenes, procedimientos, A) y P).').replace('</textarea></div>',`</textarea><div class="grid" style="margin-top:8px"><div><label>Fecha de esa evolución</label><input type="date" value="${S.evFecha}" onchange="REC.evFecha=this.value"></div></div></div>`)}
+  <div class="card"><h3>3 · Últimos análisis e imágenes</h3><p class="muted" style="margin-top:0">PDF del ESSI (laboratorio, TEM, ecografías…). De ahí salen también el DNI, nombre, edad y sexo.</p>
+   <div class="row"><label class="btn pri" style="margin:0;font-size:16px" onclick="TXT_TARGET='lab'">📄 PDF del ESSI<input type="file" accept="application/pdf" multiple style="display:none" onchange="TXT_TARGET='lab';pdfFiles([...this.files])"></label>
+   <label class="btn" style="margin:0;color:var(--ink);font-size:16px" onclick="TXT_TARGET='lab'">📷 Foto(s)<input type="file" accept="image/*" multiple style="display:none" onchange="TXT_TARGET='lab';ocrFiles([...this.files])"></label></div>
+   ${E?`<div class="alert a-info" style="margin-top:10px">ESSI: ${E.rows.length} valores · ${E.texts.length} informe(s) · ${E.pend.length} sin resultado${E.nombre?' · '+esc(E.nombre):''}${E.dnis.length>1?' · ⚠️ '+E.dnis.length+' DNI distintos':''} <button class="link" data-act="clrEssi">quitar</button></div>`:''}
+   <textarea id="rec_lab" rows="3" style="margin-top:8px" oninput="REC.lab=this.value" placeholder="(opcional) texto de análisis que no sea PDF del ESSI">${esc(S.lab)}</textarea></div>
+  <div class="row" style="margin-bottom:12px"><button class="btn pri" data-act="parse">Procesar</button><button class="btn" data-act="clear">Limpiar todo</button></div>
+  ${S.pIng||S.pEv||E||S.pLab.length?`<div class="card"><h3>4 · Datos del paciente</h3><p class="muted" style="margin-top:0">Se llenaron solos; corrige lo que haga falta. DNI y nombre pueden quedar vacíos y completarse después.</p>
+   <div class="grid w2"><div><label>DNI / CE</label><input value="${esc(S.dni)}" inputmode="numeric" oninput="REC.dni=this.value"></div><div><label>Apellidos y nombres</label><input value="${esc(S.nombre)}" oninput="REC.nombre=this.value.toUpperCase()"></div></div>
+   <div class="grid" style="margin-top:10px"><div><label>Cama</label><input value="${esc(S.cama)}" oninput="REC.cama=this.value"></div><div><label>Edad</label><input value="${esc(S.edad)}" inputmode="numeric" oninput="REC.edad=this.value"></div>
+    <div><label>Sexo</label><select onchange="REC.sexo=this.value"><option value="">—</option><option value="M" ${S.sexo==='M'?'selected':''}>Varón</option><option value="F" ${S.sexo==='F'?'selected':''}>Mujer</option></select></div>
+    <div><label>Fecha de ingreso al servicio</label><input type="date" value="${esc(S.fing)}" onchange="REC.fing=this.value"></div></div>
+   <div class="muted" style="margin-top:10px">${[S.pIng?'Nota de ingreso: '+lines(S.pIng.prob).length+' problema(s), '+S.pIng.labs.length+' labs, '+S.pIng.txt.length+' informe(s)':'',S.pEv?'Evolución del '+fmtD(S.evFecha)+': '+S.pEv.dx.length+' problema(s), '+S.pEv.labs.length+' labs, '+(S.pEv.txt||[]).length+' informe(s), '+S.pEv.pend.length+' pendiente(s)':'',E?'ESSI: '+E.rows.length+' valores, '+E.texts.length+' informe(s)':'',S.pLab.length?'Texto: '+S.pLab.length+' valores':''].filter(Boolean).join('<br>')}</div>
+   <div class="row" style="margin-top:12px"><button class="btn pri" data-act="build">Armar evolución de hoy →</button></div></div>`:''}`}
+function recBuild(){const S=REC;if(!S.fing)return toast('Pon la fecha de ingreso al servicio (para el DH)');if(S.fing>R.fecha)return toast('La fecha de ingreso es posterior a hoy');
+  if(S.pEv&&S.evFecha&&S.evFecha<S.fing)return toast('La evolución es anterior a la fecha de ingreso');
+  const dniOk=/^[0-9A-Za-z]{6,12}$/.test(S.dni.trim())&&/\d/.test(S.dni);
+  if(dniOk){const act=Object.values(DB.hosps).find(x=>x.dni===S.dni.trim()&&!(x.alta&&x.alta.confirmed));if(act)return toast('Ese DNI ya está en el censo (cama '+(act.cama||'—')+')')}
+  const tmp=tmpPatient(up(S.nombre.trim())||('CAMA '+up(S.cama.trim()||'?')));const h=newHosp(tmp,S.cama,S.fing,true);
+  if(dniOk)assignDni(h.id,S.dni,{nombre:S.nombre,sexo:S.sexo,edad:S.edad});const p=DB.patients[h.dni];if(S.edad&&!p.edad)p.edad=S.edad;if(S.sexo&&!p.sexo)p.sexo=S.sexo;
+  const g=h.ing,I=S.ing.trim()?parseIngNote(S.ing,S.fing):null;
+  if(I){Object.keys(I.fil).forEach(k=>{if(I.fil[k]&&!p[k])p[k]=k==='edad'||k==='sexo'?I.fil[k]:up(I.fil[k])});if(I.basal)g.basal=up(I.basal);if(I.servicio)g.servicio=up(I.servicio);if(I.disp)g.disp=up(I.disp);
+    if(Object.values(I.ant).some(Boolean))g.ant=I.ant;g.hea=I.hea;Object.assign(g.ex,I.ex);Object.assign(g.fv,I.fv);g.otros=I.otros;g.ic=I.ic;g.prob=I.prob;g.plan=I.plan;g.ind=I.ind;g.texto=S.ing.trim();
+    I.labs.forEach(r=>addRowLab(h,r,false));I.txt.forEach(t=>addTxtLab(h,t))}
+  const E=S.essi;if(E){E.rows.forEach(r=>{if(r.fecha)addRowLab(h,r,true)});E.texts.forEach(t=>{const T=t.concl||t.texto;resolvePendImg(h,t);addTxtLab(h,{fecha:t.fecha,titulo:t.titulo,texto:T})});
+    E.pend.forEach(q=>{const t=up(q.titulo);if(!h.pend.some(x=>deacc(x.t)===deacc(t)&&x.estado<2))h.pend.push({id:uid(),tipo:'LABORATORIO',t,estado:1,res:'',fres:'',created:Date.now()})})}
+  S.pLab.forEach(r=>addRowLab(h,r,false));
+  let last=null;const V=S.pEv;
+  if(V){const f=S.evFecha||addDays(R.fecha,-1);V.labs.forEach(r=>addRowLab(h,r,false));(V.txt||[]).forEach(t=>addTxtLab(h,t));
+    V.pend.forEach(q=>{if(!h.pend.some(x=>deacc(x.t)===deacc(q.t)))h.pend.push({id:uid(),tipo:pendType(q.t)||'OTRO',t:q.t,estado:q.estado,res:'',fres:'',created:Date.now()})});
+    const exBase={};Object.keys(EXLBL).forEach(k=>exBase[k]=exEvDef(h,k));
+    last={id:uid(),hid:h.id,dni:h.dni,fecha:f,hora:'08:00',estado:'final',imported:true,dx:V.dx.map(t=>({t,estado:'ESTABLE',a:'',p:''})),fv:{pas:'',pad:'',fc:'',fr:'',t:'',sat:'',o2:'AA'},S:V.S||'',Aest:'estable',Aevo:'estacionaria',
+      ex:Object.assign(exBase,V.ex),exChg:{},labSel:{},ind:V.ind.length?V.ind.map(x=>({id:uid(),t:x.t,fi:x.fi||''})):clone(g.ind),Aextra:'',Pextra:V.plan.join('\n'),prevId:null,texto:S.ev.trim(),created:Date.now(),updated:Date.now(),closedAt:Date.now()};
+    DB.evols[last.id]=last;if(!g.prob.trim())g.prob=V.dx.join('\n')}
+  let e=null;if(!last||last.fecha<R.fecha){e=newEvol(h,R.fecha);DB.evols[e.id]=e}
+  save();REC=null;toast('Paciente recibido'+(e?': evolución de hoy armada':''));
+  if(e)go('evol',{eid:e.id,hid:h.id,tab:'cambio'});else go('hosp',{hid:h.id})}
 
 /* ---- Ingreso ---- */
 const ING_TABS=[['fil','Filiación'],['ant','Antecedentes'],['hea','Enfermedad'],['ex','Examen'],['res','Resultados'],['prob','Problemas y plan'],['ind','Indicaciones'],['chk','Checklist'],['nota','Nota']];
@@ -486,10 +565,10 @@ function vIngreso(){
       else if(a==='mayus'){g.hea=up(g.hea);save();rerender()}},
     mount(){if(R.tab){const el=document.getElementById('s-'+R.tab);if(el)setTimeout(()=>el.scrollIntoView(),30)}bar(`<button class="btn" onclick="go('hosp',{hid:'${h.id}'})">← Paciente</button>`+(g.estado==='previo'?`<button class="btn pri" onclick="go('hosp',{hid:'${h.id}'})">Listo</button>`:`<button class="btn pri" data-act2="done" onclick="CUR.click('done')">${g.estado==='completa'?'✓ Nota completa':'Marcar nota completa'}</button>`))}};
   const head=`<div class="card"><div class="pt"><div style="display:flex;align-items:center"><span class="cama">${esc(h.cama||'—')}</span><div><div class="nm">${esc(p.nombre)}</div>
-   <div class="muted">DNI ${esc(p.dni)} · Ingreso ${fmtD(h.ingreso)} · ${previo?'<b>Datos de recepción</b> (ya hospitalizado: sin nota de ingreso)':'Nota de ingreso '+(g.estado==='completa'?'completa':'en borrador')}</div></div></div></div></div>
+   <div class="muted">${dniTag(p.dni)} · Ingreso ${fmtD(h.ingreso)} · ${previo?'<b>Datos de recepción</b> (ya hospitalizado: sin nota de ingreso)':'Nota de ingreso '+(g.estado==='completa'?'completa':'en borrador')}</div></div></div></div></div>
    <div class="tabs" style="position:sticky;top:calc(env(safe-area-inset-top) + 58px);z-index:5;background:var(--bg);padding:6px 0">${TABS.filter(([k])=>k!=='chk').map(([k,l],i)=>`<button onclick="document.getElementById('s-${k}').scrollIntoView({behavior:'smooth'})">${i+1}. ${l}</button>`).join('')}</div>`;
   let body='';const S=k=>TABS.some(([t])=>t===k);const anc=k=>`<div id="s-${k}" style="scroll-margin-top:70px"></div>`;
-  if(S('fil'))body+=anc('fil')+`<div class="card"><h3>Filiación</h3><div class="grid w2">${F('pat.nombre','Apellidos y nombres','data-up')}${F('h.cama','Cama','data-up')}</div>
+  if(S('fil'))body+=anc('fil')+`<div class="card"><h3>Filiación</h3><div class="grid w2"><div><label>DNI / CE ${isTmp(h.dni)?'<span style="color:var(--bad)">(pendiente; o súbelo con un PDF del ESSI en Labs)</span>':''}</label><input value="${isTmp(h.dni)?'':esc(h.dni)}" inputmode="numeric" autocomplete="off" onchange="setDniUI('${h.id}',this.value)"></div>${F('pat.nombre','Apellidos y nombres','data-up')}${F('h.cama','Cama','data-up')}<div><label>Fecha de ingreso</label><input type="date" data-p="h.ingreso" value="${esc(h.ingreso)}"></div></div>
    <div class="grid" style="margin-top:10px">${F('pat.edad','Edad',NUM)}<div><label>Sexo</label><select data-p="pat.sexo"><option value="">—</option><option value="M" ${p.sexo==='M'?'selected':''}>Varón</option><option value="F" ${p.sexo==='F'?'selected':''}>Mujer</option></select></div>
    ${F('pat.natural','Natural de','data-up')}${F('pat.procedencia','Procedente de','data-up')}${F('pat.instruccion','Grado de instrucción','data-up placeholder="SUPERIOR COMPLETO"')}${F('pat.ocupacion','Ocupación','data-up')}
    ${F('pat.civil','Estado civil','data-up')}${F('pat.religion','Religión','data-up')}</div>
@@ -532,7 +611,7 @@ function vEvol(){
     mount(){bar(`<button class="btn" onclick="go('hosp',{hid:'${h.id}'})">← Paciente</button>`+(e.estado==='borrador'?`<button class="btn pri" data-act="estado" data-to="visita" onclick="CUR.click('estado',{to:'visita'})">Pasar a visita →</button>`:
       `<button class="btn pri" onclick="CUR.click('estado',{to:'final'})">${e.estado==='final'?'✓ Final (actualizar)':'Cerrar evolución'}</button>`))}};
   const head=`<div class="card"><div class="pt"><div style="display:flex;align-items:center"><span class="cama">${esc(h.cama||'—')}</span><div><div class="nm">${esc(p.nombre)}</div>
-   <div class="muted">DNI ${esc(p.dni)} · <b>DH ${dh(h,e.fecha)}</b> · ${fmtD(e.fecha)} · ${{borrador:'Borrador',visita:'Post-visita',final:'Final'}[e.estado]}</div></div></div>
+   <div class="muted">${dniTag(p.dni)} · <b>DH ${dh(h,e.fecha)}</b> · ${fmtD(e.fecha)} · ${{borrador:'Borrador',visita:'Post-visita',final:'Final'}[e.estado]}</div></div></div>
    <div style="width:120px"><label>Hora</label><input type="time" data-p="hora" value="${esc(e.hora)}"></div></div>
    ${prev&&prev.texto?`<details style="margin-top:10px"><summary>Evolución anterior (${fmtD(prev.fecha)})</summary><pre class="note">${esc(prev.texto)}</pre></details>`:''}</div>
    <div class="tabs">${EV_TABS.map(([k,l])=>`<button class="${tab===k?'on':''}" data-act="tab" data-tab="${k}">${l}</button>`).join('')}</div>`;
@@ -583,7 +662,7 @@ function vLabs(){
       const t=$('#ltext');t.oninput=()=>{S.text=t.value};const f=$('#lfecha');f.onchange=()=>{S.fecha=f.value}}};
   const opts=LABDEF.map(d=>`<option value="${d[0]}">${d[1]} · ${AREAS[d[2]]}</option>`).join('');
   const existing=h.labs.slice().sort((a,b)=>b.fecha.localeCompare(a.fecha));
-  return `<div class="card"><div class="pt"><div><div class="nm">Análisis · ${esc(p.nombre)}</div><div class="muted">Cama ${esc(h.cama||'—')} · DNI ${esc(p.dni)}</div></div><button class="btn" data-act="back">← Volver</button></div></div>
+  return `<div class="card"><div class="pt"><div><div class="nm">Análisis · ${esc(p.nombre)}</div><div class="muted">Cama ${esc(h.cama||'—')} · ${dniTag(p.dni)}</div></div><button class="btn" data-act="back">← Volver</button></div></div>
   <div class="card"><h3>1 · Traer el texto</h3>
    <div class="row"><label class="btn" style="margin:0;color:var(--ink);font-size:16px">📷 Leer fotos<input id="lfotos" type="file" accept="image/*" multiple style="display:none"></label>
    <label class="btn" style="margin:0;color:var(--ink);font-size:16px">📄 Subir PDF<input id="lpdf" type="file" accept="application/pdf" multiple style="display:none"></label>
@@ -605,12 +684,16 @@ function resolvePendImg(h,t){if(!t.img)return;const mod=s=>/\b(TEM|TAC|TOMOGRAF)
   const T=deacc(t.titulo),m=mod(T),words=T.split(/\s+/).filter(w=>w.length>3&&!/^(CON|SIN|CONTRASTE|TOMOGRAFIA|ECOGRAFIA)$/.test(w));
   const pd=h.pend.find(x=>x.estado<2&&(x.tipo==='IMAGEN'||mod(deacc(x.t)))&&mod(deacc(x.t))===m&&words.some(w=>deacc(x.t).includes(w.slice(0,5))));
   if(pd){pd.estado=2;pd.res=up((t.concl||t.texto).slice(0,400));pd.fres=t.fecha;pd.updated=Date.now()}}
-function curDni(){const h=R.hid&&DB.hosps[R.hid];return h&&/^\d{8}$/.test(h.dni)?h.dni:''}
-function onEssi(r,ne){if(R.v==='importEv'){toast('Ese PDF es de laboratorio: súbelo en Labs del paciente');return}const S=LABSTATE;
+function curDni(){if(R.v==='recibir'&&REC)return /^\d{8}$/.test(REC.dni||'')?REC.dni:'';const h=R.hid&&DB.hosps[R.hid];return h&&/^\d{8}$/.test(h.dni)?h.dni:''}
+function onEssi(r,ne){if(R.v==='recibir'&&REC){const q=REC.essi;REC.essi=q?{rows:q.rows.concat(r.rows),texts:q.texts.concat(r.texts),pend:q.pend.concat(r.pend),unk:q.unk.concat(r.unk),dnis:[...new Set((q.dnis||[]).concat(r.dnis||[]))],nombre:q.nombre||r.nombre,sexo:q.sexo||r.sexo,edad:q.edad||r.edad,fing:[q.fing,r.fing].filter(Boolean).sort()[0]||''}:r;recParse();rerender();toast(essiMsg(r,ne).replace(' Revisa y guarda.',''));return}
+  {const h=R.hid&&DB.hosps[R.hid];if(h&&isTmp(h.dni)&&r.dnis&&r.dnis.length===1&&assignDni(h.id,r.dnis[0],{nombre:r.nombre,sexo:r.sexo,edad:r.edad}))setTimeout(()=>toast('DNI y nombre tomados del ESSI'),2600)}
+  if(R.v==='importEv'){toast('Ese PDF es de laboratorio: súbelo en Labs del paciente');return}const S=LABSTATE;
   S.rows=sortRev((S.rows||[]).concat(r.rows.map(x=>({...x,on:true}))));S.texts=(S.texts||[]).concat(r.texts.map(t=>({...t,on:true})));S.pend=(S.pend||[]).concat(r.pend.map(p=>({...p,on:true})));S.unk=(S.unk||[]).concat(r.unk);
   rerender();toast(essiMsg(r,ne))}
 function setBusy(msg,frac){LABSTATE.busy=msg;const b=$('#lbusy');if(b)b.textContent=msg;const pr=$('#lprog');if(pr){pr.parentNode.hidden=!msg;pr.style.width=Math.round((frac||0)*100)+'%'}}
-function appendText(t){const ta=$('#ltext');LABSTATE.text=(LABSTATE.text?LABSTATE.text+'\n':'')+t;if(ta)ta.value=LABSTATE.text}
+let TXT_TARGET=null;
+function appendText(t){if(TXT_TARGET&&REC&&R.v==='recibir'){const k=TXT_TARGET;REC[k]=(REC[k]?REC[k]+'\n':'')+t;const ta=document.getElementById('rec_'+k);if(ta)ta.value=REC[k];return}
+  const ta=$('#ltext');LABSTATE.text=(LABSTATE.text?LABSTATE.text+'\n':'')+t;if(ta)ta.value=LABSTATE.text}
 let OCRW=null;
 async function ocrWorker(){if(OCRW)return OCRW;await loadScript('lib/tesseract.min.js');
   OCRW=await Tesseract.createWorker('spa',1,{workerPath:absURL('lib/worker.min.js'),corePath:absURL('lib/core'),langPath:absURL('lib/lang'),gzip:true,
@@ -664,7 +747,7 @@ function vAlta(){
     mount(){bar(`<button class="btn" onclick="go('hosp',{hid:'${h.id}'})">← Paciente</button>`+(a.confirmed?`<button class="btn" onclick="CUR.click('reopen')">Volver al censo</button>`:`<button class="btn pri" onclick="CUR.click('confirm')">Confirmar alta</button>`))}};
   const chk=altaChecklist(h);
   return `<div class="card"><div class="pt"><div style="display:flex;align-items:center"><span class="cama">${esc(h.cama||'—')}</span><div><div class="nm">Alta · ${esc(p.nombre)}</div>
-   <div class="muted">DNI ${esc(p.dni)} · Ingreso ${fmtD(h.ingreso)} · ${a.confirmed?'<b>Alta confirmada</b>':'Alta en proceso'}</div></div></div><button class="btn bad sm" data-act="cancel">Anular alta</button></div>
+   <div class="muted">${dniTag(p.dni)} · Ingreso ${fmtD(h.ingreso)} · ${a.confirmed?'<b>Alta confirmada</b>':'Alta en proceso'}</div></div></div><button class="btn bad sm" data-act="cancel">Anular alta</button></div>
    <div class="grid" style="margin-top:10px"><div><label>Fecha de egreso</label><input type="date" data-p="fecha" value="${a.fecha}"></div></div></div>
   <div class="card"><h3>Checklist de alta</h3>${chk.map(c=>`<label class="chkl ${a.chk[c]?'done':''}"><input type="checkbox" data-chk="${esc(c)}" data-scope="alta" data-hid="${h.id}" ${a.chk[c]?'checked':''}><span>${esc(c)}</span></label>`).join('')}
    <div class="grid w2" style="margin-top:10px"><div><label>Descanso médico hasta</label><input type="date" data-p="dm" value="${esc(a.dm)}"></div><div style="align-self:end"><label class="chk"><input type="checkbox" data-p="h.citt" ${h.citt?'checked':''}> Requiere CITT</label></div></div></div>
@@ -683,9 +766,9 @@ function vAlta(){
 function vPacientes(){const q=deacc(R.q||'');CUR={root:null};
   const ps=Object.values(DB.patients).filter(p=>!q||p.dni.includes(q)||deacc(p.nombre).includes(q)).sort((a,b)=>a.nombre.localeCompare(b.nombre));
   return `<div class="card"><h2>Pacientes (${Object.keys(DB.patients).length})</h2><input id="pq" placeholder="Buscar por DNI o apellidos" value="${esc(R.q||'')}" oninput="R.q=this.value;const c=this.selectionStart;render();const i=$('#pq');i.focus();i.setSelectionRange(c,c)"></div>
-  ${ps.map(p=>{const hs=hospsOf(p.dni),act=hs.find(h=>!(h.alta&&h.alta.confirmed));return `<div class="card pt" style="cursor:pointer" onclick="go('paciente',{dni:'${esc(p.dni)}'})"><div><div class="nm">${esc(p.nombre)}</div><div class="muted">DNI ${esc(p.dni)} · ${hs.length} hospitalización(es)</div></div>${act?'<span class="badge b-ok">En censo · '+esc(act.cama)+'</span>':'<span class="badge b-alta">De alta</span>'}</div>`}).join('')||'<div class="card muted">Sin resultados.</div>'}`}
+  ${ps.map(p=>{const hs=hospsOf(p.dni),act=hs.find(h=>!(h.alta&&h.alta.confirmed));return `<div class="card pt" style="cursor:pointer" onclick="go('paciente',{dni:'${esc(p.dni)}'})"><div><div class="nm">${esc(p.nombre)}</div><div class="muted">${dniTag(p.dni)} · ${hs.length} hospitalización(es)</div></div>${act?'<span class="badge b-ok">En censo · '+esc(act.cama)+'</span>':'<span class="badge b-alta">De alta</span>'}</div>`}).join('')||'<div class="card muted">Sin resultados.</div>'}`}
 function vPaciente(){const p=DB.patients[R.dni];if(!p){R.v='pacientes';return vPacientes()}const hs=hospsOf(p.dni);CUR={root:p,dni:p.dni};
-  return `<div class="card"><h2>${esc(p.nombre)}</h2><div class="muted">DNI ${esc(p.dni)}${pLine(p)?' · '+esc(pLine(p)):''}</div>
+  return `<div class="card"><h2>${esc(p.nombre)}</h2><div class="muted">${dniTag(p.dni)}${pLine(p)?' · '+esc(pLine(p)):''}</div>
    <div class="row" style="margin-top:10px"><span class="sp"></span><button class="btn bad sm" onclick="delPatient('${esc(p.dni)}')">Eliminar paciente</button></div></div>
    ${hs.map(h=>{const ev=evolsOf(h.id);return `<div class="card"><div class="pt"><div><b>Hospitalización ${fmtD(h.ingreso)}${h.alta?' – '+fmtD(h.alta.fecha):''}</b> · cama ${esc(h.cama||'—')}</div>
     <div class="row"><button class="btn sm pri" onclick="go('hosp',{hid:'${h.id}'})">Abrir</button><button class="btn sm" onclick="go('ingreso',{hid:'${h.id}'})">Ingreso</button>${h.alta?`<button class="btn sm" onclick="go('alta',{hid:'${h.id}'})">Alta</button>`:''}<button class="btn sm bad" onclick="delHosp('${h.id}')">Eliminar</button></div></div>
@@ -715,7 +798,7 @@ function vAjustes(){const s=DB.settings;CUR={root:s,click(a){
   <div class="card"><h3>Respaldo</h3><p class="muted" style="margin-top:0">Todo vive solo en este iPad. Último respaldo: ${s.lastBackup?new Date(s.lastBackup).toLocaleString('es-PE'):'nunca'} · ${(bytes/1024).toFixed(0)} KB</p>
    <div class="row"><button class="btn pri" onclick="exportBackup()">Exportar respaldo</button><label class="btn" style="margin:0;color:var(--ink);font-size:16px">Importar respaldo<input type="file" accept=".json,application/json" style="display:none" onchange="importBackup(this.files[0])"></label></div></div>
   <div class="card"><h3>Zona de riesgo</h3><button class="btn bad" onclick="wipe()">Borrar todos los datos</button></div>
-  <p class="muted">Evol Reuma v1.9 · Lector de fotos: Tesseract.js · Lector de PDF: pdf.js (ambos funcionan sin internet una vez usados). Las plantillas son editables: valídalas con el servicio.</p>`}
+  <p class="muted">Evol Reuma v2.0 · Lector de fotos: Tesseract.js · Lector de PDF: pdf.js (ambos funcionan sin internet una vez usados). Las plantillas son editables: valídalas con el servicio.</p>`}
 async function wipe(){if(!await ask('¿Borrar TODOS los datos de Evol Reuma en este iPad?')||!await ask('Confirma de nuevo: no se puede deshacer.'))return;const s=DB.settings;DB=blank();DB.settings=Object.assign(s,{lastBackup:null});save();go('censo')}
 
 /* =====================================================================
