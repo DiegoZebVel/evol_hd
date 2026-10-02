@@ -103,7 +103,7 @@ function newEvol(h,fecha){
   if(prev){evNorm(prev);e.probT=lines(prev.probT).filter(l=>!/\(RESUELTO\)/i.test(l)).join('\n');e.O=prev.O||defO(h);e.ind=clone(prev.ind||[]);e.P=carryPlan(h,prev.P);
     const a1=(String(prev.A||'').match(/^Paciente[^.]*\./i)||[])[0];if(a1)e.A=a1}
   else{const g=h.ing;e.probT=probLines(g.prob).join('\n');const ex={};Object.keys(EXLBL).forEach(k=>{const iv=String((g.ex||{})[k]||'');ex[k]=(!iv.trim()||iv===DB.settings.ex[k]||iv===EXDEF[k])?exEvDef(h,k):iv});
-    e.O=buildO(ex);e.ind=clone(g.ind);e.P=lines(g.plan).join('\n')}
+    e.O=String(g.exT||'').trim()?lines(g.exT).map(x=>sc(x)).join('\n'):buildO(ex);e.ind=clone(g.ind);e.P=lines(g.plan).join('\n')}
   e.P=addPendToPlan(h,e.P);return e;
 }
 function exEvDef(h,k){let v=(DB.settings.exEv||EXEV)[k]||'';if(P(h.dni).sexo==='M')v=v.replace('Despierta','Despierto').replace('orientada','orientado');return v}
@@ -371,8 +371,8 @@ const SECRE=[['dx',/^(PACIENTE\b[^:]{0,80}\bCON\b[^:]{0,40}?(PROBLEMAS|DX|DIAGNO
  ['O',/^(O|OBJETIVO|EXAMEN FISICO|AL EXAMEN( FISICO)?|EF)\b\s*[:)}\].-]?|^[0Q]\s*[)}\]]/],['lab',/^(EXAMENES AUXILIARES|EXS? AUX\w*|LABORATORIO|LAB|RESULTADOS|PERFIL INMUNOLOGICO)\b\s*:?/],
  ['txt',/^(IMAGENES|PROCEDIMIENTOS|INTERCONSULTAS)\s*:?\s*$/],['A',/^(A|APRECIACION|ANALISIS|EVALUACION)\s*[:)}\].-]|^(APRECIACION|ANALISIS|EVALUACION)\b/],
  ['P',/^(P|PLAN( DE TRABAJO)?|CONDUCTA)\b\s*[:)}\].-]?/],['ind',/^(INDICACIONES\b\s*:?|(TRATAMIENTO|TTO|RP)\s*:)/],['pend',/^PENDIENTES?\s*:\s*$|^PENDIENTES\s*:/]];
-const EXRE=[['gen',/^(GENERAL|ESTADO GENERAL|EG|EGRAL|APARIENCIA)\b/],['piel',/^(PIEL( Y (FANERAS|MUCOSAS))?|PYF)\b/],['tcsc',/^(TCSC|TEJIDO CELULAR( SUBCUTANEO)?)\b/],['osteo',/^(OSTEO\w*|ARTICULAR|LOCOMOTOR|SOMA|MUSCULOESQUELETICO|EXTREMIDADES)\b/],
- ['resp',/^(TORAX( Y PULMONES)?|TYP|T Y P|PULMONES|RESPIRATORIO|AP|APARATO RESPIRATORIO)\b/],['cv',/^(CV|CARDIOVASCULAR|CARDIO\w*|CORAZON|RCR|ACV)\b/],['abd',/^(ABD\w*)\b/],['gu',/^(GU|GENITOURINARIO|GENITO\w*|URINARIO|RENAL)\b/],['neuro',/^(NEURO\w*|SNC|SN)\b/]];
+const EXRE=[['gen',/^(GENERAL|ESTADO GENERAL|EG|EGRAL|APARIENCIA)\b/],['piel',/^(PIEL( Y (FANERAS|MUCOSAS))?|PYF)\b/],['tcsc',/^(TCSC|TEJIDO CELULAR( SUBCUTANEO)?)\b/],['osteo',/^(OSTEO\w*|ARTICULAR|LOCOMOTOR|SOMA|MUSCULO-? ?ESQUELETICO|EXTREMIDADES|FUERZA MUSCULAR)\b/],
+ ['resp',/^(TORAX( Y PULMONES)?|TYP|T Y P|PULMONES|RESPIRATORIO|AP|APARATO RESPIRATORIO)\b/],['cv',/^(CV|CARDIOVASCULAR|CARDIO\w*|CORAZON|RCR|ACV)\b/],['abd',/^(ABD\w*)\b/],['gu',/^(GU|GENITOURINARIO|GENITO\w*|URINARIO|RENAL)\b/],['neuro',/^((SISTEMA )?NEURO\w*|SNC|SN)\b/]];
 function stripNum(l){return l.replace(/^\s*(?:[-•·*]|\d+\s*[.)\-]|[a-z]\))\s*/i,'').trim()}
 // Evolución en texto (TXT, ESSI, PDF o foto) → bloques de texto tal cual (problemas, S, O, A, P) + labs, informes y pendientes
 function parseEvol(text,fecha){
@@ -424,7 +424,7 @@ function vImport(){
     else if(a==='apply'){const r=IMP.r,f=IMP.fecha;if(!f)return toast('Pon la fecha de la evolución');if(f<h.ingreso)return toast('La fecha es anterior al ingreso ('+fmtD(h.ingreso)+')');
       r.probT=$('#idx').value.trim();r.O=$('#iO').value.trim();r.P=$('#iP').value.trim();
       if(evolOn(h.id,f)&&!await ask('Ya hay una evolución del '+fmtD(f)+'. ¿Reemplazarla con la importada?'))return;
-      const e=importEvolInto(h,r,f,IMP.text);
+      const e=importEvolInto(h,r,f,IMP.text);if(IMP.essi){IMP.essi.rows.forEach(x=>{if(x.fecha)addRowLab(h,x,true)});IMP.essi.texts.forEach(t=>{resolvePendImg(h,t);addTxtLab(h,{fecha:t.fecha,titulo:t.titulo,texto:t.concl||t.texto})})}
       let hoy=evolOn(h.id,R.fecha);if(hoy&&hoy.id!==e.id&&hoy.estado!=='final'&&await ask('La evolución de hoy ya estaba creada (borrador). ¿Rehacerla a partir de la importada?')){delete DB.evols[hoy.id];hoy=null}
       if(!hoy&&f<R.fecha){hoy=newEvol(h,R.fecha);DB.evols[hoy.id]=hoy}
       save();IMP={text:'',r:null,fecha:null};LABSTATE={text:'',rows:null,unk:[],fecha:null,busy:''};toast('Evolución del '+fmtD(f)+' importada');
@@ -491,12 +491,14 @@ function parseIngNote(text,ref){const out={pre:[],ant:[],hea:[],ex:[],lab:[],img
   r.fil.ocupacion=g(/OCUPACI[ÓO]N ([^,.]+)/);r.fil.civil=g(/ESTADO CIVIL ([^,.]+)/);r.fil.religion=g(/RELIGI[ÓO]N ([^,.]+)/);
   r.basal=g(/ESTADO BASAL ([^.]+)/);r.servicio=g(/INGRESA PROCEDENTE (?:DEL SERVICIO DE |DE |DEL )?([^,.]+)/);r.disp=g(/INGRESA PROCEDENTE [^,.]+,\s*([^.]+)/);
   r.autor=(out.pre.find(x=>/^M[RC]\s/i.test(x))||'');
-  let k='patol';const pat=[];out.ant.filter(Boolean).forEach(l=>{const u=deacc(l);const m=u.match(/^(QUIRURGICOS?|HOSPITALIZACIONES|ALERGIAS?|MEDICACION HABITUAL|MEDICAMENTOS? HABITUALES?)\s*:\s*/);
-    if(m){k=/^Q/.test(m[1])?'quir':/^H/.test(m[1])?'hosp':/^A/.test(m[1])?'alerg':'med';l=l.slice(m[0].length)}if(k==='patol')pat.push(l);else r.ant[k]=(r.ant[k]?r.ant[k]+' ':'')+l});
+  let k='patol';const pat=[];out.ant.filter(Boolean).forEach(l=>{const u=deacc(l);const m=u.match(/^(?:ANTECEDENTES?\s+)?(PATOLOGICOS?|PERSONALES|QUIRURGICOS?|HOSPITALIZACIONES( PREVIAS)?|ALERGIC[OA]S?|ALERGIAS?|FARMACOLOGICOS?( RECIENTES)?|MEDICACION HABITUAL|MEDICAMENTOS?( HABITUALES?)?)\s*:\s*/);
+    if(m){k=/^(P)/.test(m[1])?'patol':/^Q/.test(m[1])?'quir':/^H/.test(m[1])?'hosp':/^A/.test(m[1])?'alerg':'med';l=l.slice(m[0].length);if(!l.trim())return}if(k==='patol')pat.push(l);else r.ant[k]=(r.ant[k]?r.ant[k]+'\n':'')+l});
   r.ant.patol=pat.join('\n');Object.keys(r.ant).forEach(x=>r.ant[x]=up(r.ant[x].trim()));
   r.hea=up(out.hea.join('\n').replace(/^\n+|\n+$/g,'').replace(/\n{3,}/g,'\n\n'));
+  r.exT=up(out.ex.filter(Boolean).join('\n'));let lastK=null;
   out.ex.filter(Boolean).forEach(l=>{const u=deacc(l);if(/^(FUNCIONES VITALES|FV|SIGNOS VITALES)\b/.test(u)){const n=re=>{const m=u.match(re);return m?m[1]:''};r.fv={pas:n(/PA\s*:?\s*(\d{2,3})\s*\//),pad:n(/PA\s*:?\s*\d{2,3}\s*\/\s*(\d{2,3})/),fc:n(/FC\s*:?\s*(\d{2,3})/),fr:n(/FR\s*:?\s*(\d{1,2})/),t:n(/T°?\s*:?\s*(\d{2}(?:[.,]\d)?)\s*°?C/),sat:n(/SAT\s*O?2?\s*:?\s*(\d{2,3})\s*%/)};return}
-    for(const[kk,re]of EXRE){const m=u.match(re);if(m&&/:/.test(u.slice(0,40))){r.ex[kk]=up(l.slice(l.indexOf(':')+1).trim());return}}});
+    for(const[kk,re]of EXRE){const m=u.match(re);if(m&&/:/.test(u.slice(0,40))){r.ex[kk]=up(l.slice(l.indexOf(':')+1).trim());lastK=kk;return}}
+    if(lastK)r.ex[lastK]+=' '+up(l)});
   const labTxt=out.lab.filter(Boolean);r.labs=parseLabs(labTxt.join('\n'),ref).rows;r.txt=[];const ot=[];
   labTxt.forEach(l=>{const c=l.replace(/^[•·\-*]\s*/,'');if(parseLabs(c,ref).rows.length)return;if(/^\d{1,2}\/\d{1,2}(\/\d{2,4})?\s*[:,]/.test(c)&&/:/.test(c.replace(/^[\d\/]+\s*[:,]/,'')))r.txt.push(...parseEvTexts([c],ref));else if(c&&!/^(LAB|FUNCION RENAL|PERFIL)/i.test(deacc(c)))ot.push(l)});
   r.otros=up(ot.join('\n'));r.txt.push(...parseEvTexts(out.img.filter(Boolean),ref));
@@ -509,9 +511,9 @@ function addRowLab(h,row,over){const area=LABMAP[row.k]?LABMAP[row.k].a:'OTROS';
   const it=L.items.find(i=>i.k===row.k);if(it){if(over)it.v=up(row.v);return false}L.items.push({k:row.k,v:up(row.v)});return true}
 function recParse(){const S=REC;const ref=S.fing||R.fecha;
   S.pIng=S.ing.trim()?parseIngNote(S.ing,ref):null;S.pEv=S.ev.trim()?parseEvol(S.ev,S.evFecha):null;S.pLab=S.lab.trim()?parseLabs(S.lab,R.fecha).rows:[];
-  const E=S.essi||{};if(!S.dni&&E.dnis&&E.dnis.length===1)S.dni=E.dnis[0];if(!S.nombre&&E.nombre)S.nombre=E.nombre;
-  if(!S.edad)S.edad=(S.pEv&&S.pEv.edad)||(S.pIng&&S.pIng.fil.edad)||E.edad||'';if(!S.sexo)S.sexo=(S.pIng&&S.pIng.fil.sexo)||E.sexo||'';
-  if(!S.cama&&S.pEv&&S.pEv.cama)S.cama=S.pEv.cama;if(!S.fing&&E.fing)S.fing=E.fing}
+  const E=S.essi||{},u=S.u||(S.u={}),set=(k,v)=>{if(!u[k]&&v)S[k]=v};
+  set('dni',E.dnis&&E.dnis.length===1?E.dnis[0]:'');set('nombre',E.nombre);set('edad',E.edad||(S.pEv&&S.pEv.edad)||(S.pIng&&S.pIng.fil.edad));
+  set('sexo',E.sexo||(S.pIng&&S.pIng.fil.sexo));set('cama',S.pEv&&S.pEv.cama);set('fing',E.fing)}
 function vRecibir(){if(!REC)REC=recBlank();const S=REC;
   const box=(k,title,hint)=>`<div class="card"><h3>${title}</h3><p class="muted" style="margin-top:0">${hint}</p>
    <div class="row"><label class="btn" style="margin:0;color:var(--ink);font-size:16px" onclick="TXT_TARGET='${k}'">📷 Foto(s)<input type="file" accept="image/*" multiple style="display:none" onchange="TXT_TARGET='${k}';ocrFiles([...this.files])"></label>
@@ -531,10 +533,10 @@ function vRecibir(){if(!REC)REC=recBlank();const S=REC;
    <textarea id="rec_lab" rows="3" style="margin-top:8px" oninput="REC.lab=this.value" placeholder="(opcional) texto de análisis que no sea PDF del ESSI">${esc(S.lab)}</textarea></div>
   <div class="row" style="margin-bottom:12px"><button class="btn pri" data-act="parse">Procesar</button><button class="btn" data-act="clear">Limpiar todo</button></div>
   ${S.pIng||S.pEv||E||S.pLab.length?`<div class="card"><h3>4 · Datos del paciente</h3><p class="muted" style="margin-top:0">Se llenaron solos; corrige lo que haga falta. DNI y nombre pueden quedar vacíos y completarse después.</p>
-   <div class="grid w2"><div><label>DNI / CE</label><input value="${esc(S.dni)}" inputmode="numeric" oninput="REC.dni=this.value"></div><div><label>Apellidos y nombres</label><input value="${esc(S.nombre)}" oninput="REC.nombre=this.value.toUpperCase()"></div></div>
-   <div class="grid" style="margin-top:10px"><div><label>Cama</label><input value="${esc(S.cama)}" oninput="REC.cama=this.value"></div><div><label>Edad</label><input value="${esc(S.edad)}" inputmode="numeric" oninput="REC.edad=this.value"></div>
-    <div><label>Sexo</label><select onchange="REC.sexo=this.value"><option value="">—</option><option value="M" ${S.sexo==='M'?'selected':''}>Varón</option><option value="F" ${S.sexo==='F'?'selected':''}>Mujer</option></select></div>
-    <div><label>Fecha de ingreso al servicio</label><input type="date" value="${esc(S.fing)}" onchange="REC.fing=this.value"></div></div>
+   <div class="grid w2"><div><label>DNI / CE</label><input value="${esc(S.dni)}" inputmode="numeric" oninput="REC.dni=this.value;(REC.u=REC.u||{}).dni=1"></div><div><label>Apellidos y nombres</label><input value="${esc(S.nombre)}" oninput="REC.nombre=this.value.toUpperCase();(REC.u=REC.u||{}).nombre=1"></div></div>
+   <div class="grid" style="margin-top:10px"><div><label>Cama</label><input value="${esc(S.cama)}" oninput="REC.cama=this.value;(REC.u=REC.u||{}).cama=1"></div><div><label>Edad</label><input value="${esc(S.edad)}" inputmode="numeric" oninput="REC.edad=this.value;(REC.u=REC.u||{}).edad=1"></div>
+    <div><label>Sexo</label><select onchange="REC.sexo=this.value;(REC.u=REC.u||{}).sexo=1"><option value="">—</option><option value="M" ${S.sexo==='M'?'selected':''}>Varón</option><option value="F" ${S.sexo==='F'?'selected':''}>Mujer</option></select></div>
+    <div><label>Fecha de ingreso al servicio</label><input type="date" value="${esc(S.fing)}" onchange="REC.fing=this.value;(REC.u=REC.u||{}).fing=1"></div></div>
    <div class="muted" style="margin-top:10px">${[S.pIng?'Nota de ingreso: '+lines(S.pIng.prob).length+' problema(s), '+S.pIng.labs.length+' labs, '+S.pIng.txt.length+' informe(s)':'',S.pEv?'Evolución del '+fmtD(S.evFecha)+': '+S.pEv.dx.length+' problema(s), '+S.pEv.labs.length+' labs, '+(S.pEv.txt||[]).length+' informe(s), '+S.pEv.pend.length+' pendiente(s)':'',E?'ESSI: '+E.rows.length+' valores, '+E.texts.length+' informe(s)':'',S.pLab.length?'Texto: '+S.pLab.length+' valores':''].filter(Boolean).join('<br>')}</div>
    <div class="row" style="margin-top:12px"><button class="btn pri" data-act="build">Armar evolución de hoy →</button></div></div>`:''}`}
 function recBuild(){const S=REC;if(!S.fing)return toast('Pon la fecha de ingreso al servicio (para el DH)');if(S.fing>R.fecha)return toast('La fecha de ingreso es posterior a hoy');
@@ -545,7 +547,7 @@ function recBuild(){const S=REC;if(!S.fing)return toast('Pon la fecha de ingreso
   if(dniOk)assignDni(h.id,S.dni,{nombre:S.nombre,sexo:S.sexo,edad:S.edad});const p=DB.patients[h.dni];if(S.edad&&!p.edad)p.edad=S.edad;if(S.sexo&&!p.sexo)p.sexo=S.sexo;
   const g=h.ing,I=S.ing.trim()?parseIngNote(S.ing,S.fing):null;
   if(I){Object.keys(I.fil).forEach(k=>{if(I.fil[k]&&!p[k])p[k]=k==='edad'||k==='sexo'?I.fil[k]:up(I.fil[k])});if(I.basal)g.basal=up(I.basal);if(I.servicio)g.servicio=up(I.servicio);if(I.disp)g.disp=up(I.disp);
-    if(Object.values(I.ant).some(Boolean))g.ant=I.ant;g.hea=I.hea;Object.assign(g.ex,I.ex);Object.assign(g.fv,I.fv);g.otros=I.otros;g.ic=I.ic;g.prob=I.prob;g.plan=I.plan;g.ind=I.ind;g.texto=S.ing.trim();
+    if(Object.values(I.ant).some(Boolean))g.ant=I.ant;g.exT=I.exT||'';g.hea=I.hea;Object.assign(g.ex,I.ex);Object.assign(g.fv,I.fv);g.otros=I.otros;g.ic=I.ic;g.prob=I.prob;g.plan=I.plan;g.ind=I.ind;g.texto=S.ing.trim();
     I.labs.forEach(r=>addRowLab(h,r,false));I.txt.forEach(t=>addTxtLab(h,t))}
   const E=S.essi;if(E){E.rows.forEach(r=>{if(r.fecha)addRowLab(h,r,true)});E.texts.forEach(t=>{const T=t.concl||t.texto;resolvePendImg(h,t);addTxtLab(h,{fecha:t.fecha,titulo:t.titulo,texto:T})});
     E.pend.forEach(q=>{const t=up(q.titulo);if(!h.pend.some(x=>deacc(x.t)===deacc(t)&&x.estado<2))h.pend.push({id:uid(),tipo:'LABORATORIO',t,estado:1,res:'',fres:'',created:Date.now()})})}
@@ -681,13 +683,36 @@ function resolvePendImg(h,t){if(!t.img)return;const mod=s=>/\b(TEM|TAC|TOMOGRAF)
   const pd=h.pend.find(x=>x.estado<2&&(x.tipo==='IMAGEN'||mod(deacc(x.t)))&&mod(deacc(x.t))===m&&words.some(w=>deacc(x.t).includes(w.slice(0,5))));
   if(pd){pd.estado=2;pd.res=up((t.concl||t.texto).slice(0,400));pd.fres=t.fecha;pd.updated=Date.now()}}
 function curDni(){if(R.v==='recibir'&&REC)return /^\d{8}$/.test(REC.dni||'')?REC.dni:'';const h=R.hid&&DB.hosps[R.hid];return h&&/^\d{8}$/.test(h.dni)?h.dni:''}
-function onEssi(r,ne){if(R.v==='recibir'&&REC&&TXT_TARGET==='lab'||R.v==='recibir'&&REC&&!['ing','ev'].includes(TXT_TARGET)){const q=REC.essi;REC.essi=q?{rows:q.rows.concat(r.rows),texts:q.texts.concat(r.texts),pend:q.pend.concat(r.pend),unk:q.unk.concat(r.unk),dnis:[...new Set((q.dnis||[]).concat(r.dnis||[]))],nombre:q.nombre||r.nombre,sexo:q.sexo||r.sexo,edad:q.edad||r.edad,fing:[q.fing,r.fing].filter(Boolean).sort()[0]||''}:r;recParse();rerender();toast(essiMsg(r,ne).replace(' Revisa y guarda.',''));return}
+function onEssi(r,ne){if(R.v==='recibir'&&REC){const q=REC.essi;REC.essi=q?{rows:q.rows.concat(r.rows),texts:q.texts.concat(r.texts),pend:q.pend.concat(r.pend),unk:q.unk.concat(r.unk),dnis:[...new Set((q.dnis||[]).concat(r.dnis||[]))],nombre:q.nombre||r.nombre,sexo:q.sexo||r.sexo,edad:q.edad||r.edad,fing:[q.fing,r.fing].filter(Boolean).sort()[0]||''}:r;recParse();rerender();toast(essiMsg(r,ne).replace(' Revisa y guarda.',''));return}
   {const h=R.hid&&DB.hosps[R.hid];if(h&&isTmp(h.dni)&&r.dnis&&r.dnis.length===1&&assignDni(h.id,r.dnis[0],{nombre:r.nombre,sexo:r.sexo,edad:r.edad}))setTimeout(()=>toast('DNI y nombre tomados del ESSI'),2600)}
-  if(R.v==='importEv'){toast('Ese PDF es de laboratorio: súbelo en Labs del paciente');return}const S=LABSTATE;
+  if(R.v==='importEv'){IMP.essi=r;return}const S=LABSTATE;
   S.rows=sortRev((S.rows||[]).concat(r.rows.map(x=>({...x,on:true}))));S.texts=(S.texts||[]).concat(r.texts.map(t=>({...t,on:true})));S.pend=(S.pend||[]).concat(r.pend.map(p=>({...p,on:true})));S.unk=(S.unk||[]).concat(r.unk);
   rerender();toast(essiMsg(r,ne))}
 function setBusy(msg,frac){LABSTATE.busy=msg;const b=$('#lbusy');if(b)b.textContent=msg;const pr=$('#lprog');if(pr){pr.parentNode.hidden=!msg;pr.style.width=Math.round((frac||0)*100)+'%'}}
 let TXT_TARGET=null;
+/* PDF "Visualiza Atenciones del Acto médico" del ESSI → solo el texto del médico (Anamnesis, Examen clínico, Plan de trabajo) + Indicaciones.
+   Quita encabezados de página, rótulos del ESSI y todo lo de enfermería; une las líneas cortadas por el ancho de la página. */
+function essiClinical(text){const L=String(text||'').split('\n');
+  if(!L.some(l=>/^Anamnesis\b/.test(l.trim()))||!L.some(l=>/^(Examen Cl[ií]nico|Plan de Trabajo|Diagnostico)\b/.test(l.trim())))return null;
+  const LBL=/^(Anamnesis|Examen Cl[ií]nico|Signos Vitales|Informe UCI|Diagnostico|Plan de Trabajo|Indicaciones|Resultado de la Atenci[oó]n|Notas de Enfermeria|Solicitudes Interconsulta|Examenes Auxiliares|Medicamentos Recetados|Procedimientos de la Secuencia|N[uú]mero de Atencion)\b/;
+  let mode=null,started=false;const body=[],ind=[];
+  for(const raw of L){const l=raw.trim();
+    if(/Visualiza Atenciones del Acto/i.test(l)||/^sgss\.essalud/i.test(l)||/^No existen atenciones/i.test(l))continue;
+    const m=l.match(LBL);
+    if(m&&(/\(\s*[\d#]/.test(l)||l===m[1]||!/^(Anamnesis|Examen Cl|Diagnostico|Plan de Trabajo|Indicaciones)/.test(m[1]))){const k=deacc(m[1]);
+      if(/^(ANAMNESIS|EXAMEN CL|PLAN DE TRABAJO)/.test(k)){if(mode==='done')break;mode='body';started=true;continue}
+      if(/^(SIGNOS VITALES|INFORME UCI)/.test(k))continue;
+      if(/^NUMERO DE ATENCION/.test(k)){if(started)break;continue}
+      if(/^DIAGNOSTICO/.test(k)){mode='dx';continue}
+      if(/^INDICACIONES/.test(k)){if(mode!=='done')mode='ind';continue}
+      if(started){mode='done';if(/^(NOTAS DE ENFERMERIA)/.test(k))break}continue}
+    if(mode==='body')body.push(raw.replace(/\s+$/,''));else if(mode==='ind'&&l)ind.push(l)}
+  if(!body.length&&!ind.length)return null;
+  const B=body.map(x=>x.trim()),max=Math.max(...B.map(x=>x.length),1),out=[];
+  B.forEach(l=>{const prev=out.length?out[out.length-1]:'';
+    const isNew=!l||/^([-•·*]|\d{1,2}\/\d{1,2}|[SOAP]\)|[A-ZÁÉÍÓÚÑ][A-ZÁÉÍÓÚÑ \-]{2,40}:|[A-ZÁÉÍÓÚÑ][a-záéíóúñ]+:)/.test(l);
+    if(prev&&!isNew&&!/[.:]$/.test(prev)&&(/^[a-záéíóúñ(0-9]/.test(l)||prev.length>=0.8*max))out[out.length-1]=prev+' '+l;else out.push(l)});
+  let t=out.join('\n').replace(/\n{3,}/g,'\n\n').trim();if(ind.length)t+='\n\nIndicaciones\n'+ind.join('\n');return t}
 function appendText(t){if(TXT_TARGET&&REC&&R.v==='recibir'){const k=TXT_TARGET;REC[k]=(REC[k]?REC[k]+'\n':'')+t;const ta=document.getElementById('rec_'+k);if(ta)ta.value=REC[k];return}
   const ta=$('#ltext');LABSTATE.text=(LABSTATE.text?LABSTATE.text+'\n':'')+t;if(ta)ta.value=LABSTATE.text}
 let OCRW=null;
@@ -702,8 +727,10 @@ async function pdfFiles(files){if(!files.length)return;try{setBusy('Abriendo PDF
   const ess=[];let n=0;
   for(const f of files){n++;setBusy('Leyendo '+f.name+' ('+n+'/'+files.length+')…',n/files.length);const {rows}=await pdfRows(f);
     const wantText=R.v==='importEv'||(R.v==='recibir'&&['ing','ev'].includes(TXT_TARGET));
-    if(!wantText&&essiDetect(rows)){const r=essiParse(rows);if(r.rows.length||r.texts.length||r.pend.length){ess.push(r);continue}}
-    if(rows.length>=5){appendText(rows.map(r=>r.map(i=>i.s).join(' ')).filter(t=>!ESSI_NOISE.test(t)).join('\n'));continue}
+    const raw=rows.map(r=>r.map(i=>i.s).join(' ')).join('\n'),cl=wantText?essiClinical(raw):null;
+    if(essiDetect(rows)){const r=essiParse(rows);if(r.rows.length||r.texts.length||r.pend.length)ess.push(r);if(!wantText)continue}
+    if(cl){appendText(cl);continue}
+    if(rows.length>=5){appendText(raw.split('\n').filter(t=>!ESSI_NOISE.test(t)).join('\n'));continue}
     await pdfOCR(f)}
   setBusy('',0);if(ess.length){const dni=curDni();const ok=ess.filter(r=>!dni||!r.dni||r.dni===dni),bad=ess.length-ok.length;
     if(bad)setTimeout(()=>toast('⚠️ '+bad+' PDF de OTRO paciente (DNI distinto) no se importaron'),2600);if(ok.length)onEssi(combineEssi(ok),ok.length);else toast('⚠️ Ninguno de esos PDF es de este paciente (DNI distinto)')}else toast('PDF leído. Revisa y toca Procesar')}catch(e){setBusy('',0);toast('No se pudo leer el PDF: '+e.message)}}
@@ -795,7 +822,7 @@ function vAjustes(){const s=DB.settings;CUR={root:s,click(a){
   <div class="card"><h3>Respaldo</h3><p class="muted" style="margin-top:0">Todo vive solo en este iPad. Último respaldo: ${s.lastBackup?new Date(s.lastBackup).toLocaleString('es-PE'):'nunca'} · ${(bytes/1024).toFixed(0)} KB</p>
    <div class="row"><button class="btn pri" onclick="exportBackup()">Exportar respaldo</button><label class="btn" style="margin:0;color:var(--ink);font-size:16px">Importar respaldo<input type="file" accept=".json,application/json" style="display:none" onchange="importBackup(this.files[0])"></label></div></div>
   <div class="card"><h3>Zona de riesgo</h3><button class="btn bad" onclick="wipe()">Borrar todos los datos</button></div>
-  <p class="muted">Evol Reuma v2.1 · Lector de fotos: Tesseract.js · Lector de PDF: pdf.js (ambos funcionan sin internet una vez usados). Las plantillas son editables: valídalas con el servicio.</p>`}
+  <p class="muted">Evol Reuma v2.2 · Lector de fotos: Tesseract.js · Lector de PDF: pdf.js (ambos funcionan sin internet una vez usados). Las plantillas son editables: valídalas con el servicio.</p>`}
 async function wipe(){if(!await ask('¿Borrar TODOS los datos de Evol Reuma en este iPad?')||!await ask('Confirma de nuevo: no se puede deshacer.'))return;const s=DB.settings;DB=blank();DB.settings=Object.assign(s,{lastBackup:null});save();go('censo')}
 
 /* =====================================================================

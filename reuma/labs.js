@@ -334,7 +334,7 @@ function essiParse(rows){
     if(/Solicitud Nro|Fecha de (la )?Solicitud/i.test(t)){flush();const m=t.match(DATE_RE);solic=m?toISO(m):'';return}
     if(/^\d{5}(\.\d+)?$/.test(it[0].s)){flush();exam={code:it[0].s,name:it.slice(1).map(i=>i.s).join(' '),ind:'',n:0};fecha=null;muestra='';hora='';return}
     if(/^INF\.:/.test(it[0].s)){flush();
-      if(/FECHA RESULTADO:/i.test(t)&&/\/\s*\/\s*00:00:00/.test(t)){if(exam)out.pend.push({titulo:short(exam),solic});fecha=null;return}
+      if(/FECHA RESULTADO:/i.test(t)&&/\/\s*\/\s*00:00:00/.test(t)){if(exam){const ind=String(exam.ind||'').replace(/\s*(MOTIVO|DX|D\/C)\b.*$/i,'').replace(/[.:;,]+$/,'').trim();let ti=ind&&ind.length<=35&&/[A-Z]{3}/i.test(ind)&&!/^(MAÑANA|HOY|URGENTE|\d)/i.test(ind)?up(ind):short(exam).replace(/\s+(POR|EN|PARA|CON)\s.*$/,'');out.pend.push({titulo:ti,solic})}fecha=null;return}
       const dm=t.match(/FECHA(?:\s+RESULTADO:)?\s+(\d{1,2}\/\d{1,2}\/\d{4})(?:\s+(\d{1,2}:\d{2}(?::\d{2})?))?/);fecha=dm?toISO(dm[1].match(DATE_RE)):solic;if(dm&&dm[2])hora=dm[2];
       const fx=(it.find(i=>/^FECHA/.test(i.s))||{x:9999}).x;const tx=[it[0].s.replace(/^INF\.:\s*/,''),...it.slice(1).filter(i=>i.x<fx).map(i=>i.s)].join(' ').trim();
       inf={exam,fecha,lines:tx&&!/^NO$/i.test(tx)?[tx]:[]};return}
