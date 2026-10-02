@@ -80,17 +80,35 @@ function newIng(){return {estado:'borrador',basal:'INDEPENDIENTE',servicio:'',di
   ant:{patol:'',quir:'',hosp:'',alerg:'',med:''},hea:'',fv:{pas:'',pad:'',fc:'',fr:'',t:'',sat:'',o2:'AA'},ex:{...DB.settings.ex},otros:'',img:'',ic:'',prob:'',plan:'',ind:[]}}
 function newHosp(dni,cama,ing,previo){const h={id:uid(),dni,cama:up(cama).trim(),ingreso:ing,ing:newIng(),labs:[],pend:[],chkIng:{},chkDia:{},citt:false,alta:null,created:Date.now(),updated:Date.now()};if(previo)h.ing.estado='previo';DB.hosps[h.id]=h;return h}
 function probLines(s){return lines(s).map(x=>x.replace(/^[•·\-*\d.)\s]+/,'').trim()).filter(Boolean)}
+const DEF_A='Paciente estable, con evolución clínica estacionaria.';
+// O) como texto: primera línea general y luego "Piel: …", "Tórax: …"
+function buildO(ex){ex=ex||{};const L=[String(ex.gen||'').trim()||'REG, REH, REN.'];Object.keys(EVLBL).forEach(k=>{const v=String(ex[k]||'').trim();if(v)L.push(EVLBL[k]+': '+v)});return L.join('\n')}
+function defO(h){const ex={};Object.keys(EXLBL).forEach(k=>ex[k]=exEvDef(h,k));return buildO(ex)}
+// Evoluciones guardadas con el formato anterior (dx/ex/Aextra/Pextra) → texto (probT, O, A, P)
+function evNorm(e){if(!e||e.v===2)return e;const ex=e.ex;
+  e.probT=(e.dx||[]).filter(d=>d.t&&d.t.trim()&&d.estado!=='RESUELTO').map(d=>d.t.trim()).join('\n');
+  e.O=ex&&Object.values(ex).some(v=>String(v||'').trim())?buildO(ex):'';
+  let a='Paciente '+(e.Aest||'estable')+', con evolución clínica '+(e.Aevo||'estacionaria')+'.';if(String(e.Aextra||'').trim())a+=' '+dot(e.Aextra.trim());(e.dx||[]).forEach(d=>{if(String(d.a||'').trim())a+=' '+dot(d.a.trim())});e.A=a;
+  const P=[];(e.dx||[]).forEach(d=>lines(d.p).forEach(x=>P.push(x)));lines(e.Pextra).forEach(x=>P.push(x));e.P=P.join('\n');e.S=e.S||'';e.v=2;return e}
+function pendLine(x){const lb=sc(pendLabel(x));return x.estado===0?(x.tipo==='IC'?lb:'SS '+lb):'Pendiente '+lb}
+function addPendToPlan(h,P){const L=lines(P);pendActive(h).forEach(x=>{if(deacc(L.join(' ')).includes(deacc(pendLabel(x))))return;L.push(pendLine(x))});return L.join('\n')}
+// líneas del P) que son pendientes: "Pendiente X" (solicitado), "SS X" / "IC X" (por pedir)
+function pendFromPlan(Ls){const out=[];Ls.forEach(x=>{x=String(x).trim().replace(/\.$/,'');const u=deacc(x);let m;
+  if((m=x.match(/^pendientes?\s*:?\s*/i))&&x.length>m[0].length)x.slice(m[0].length).split(/,\s*pendientes?\s+/i).forEach(t=>out.push({t:t.trim(),estado:1}));
+  else if(/^SS\b/.test(u))out.push({t:x.replace(/^ss\s*/i,''),estado:0});else if(/^IC\b/.test(u))out.push({t:x,estado:0})});return out.filter(q=>q.t)}
+function syncPendFromPlan(h,P){let n=0;pendFromPlan(lines(P)).forEach(q=>{const k=deacc(q.t);if(h.pend.some(x=>deacc(x.t)===k||deacc(pendLabel(x))===k))return;h.pend.push({id:uid(),tipo:pendType(q.t)||'OTRO',t:q.t,estado:q.estado,res:'',fres:'',created:Date.now()});n++});return n}
 function newEvol(h,fecha){
   const prev=evolsOf(h.id).find(e=>e.fecha<fecha);
-  const e={id:uid(),hid:h.id,dni:h.dni,fecha,hora:nowHM(),estado:'borrador',dx:[],fv:{pas:'',pad:'',fc:'',fr:'',t:'',sat:'',o2:'AA'},S:'',ex:{},exChg:{},labSel:{},Aextra:'',Pextra:'',Aest:'estable',Aevo:'estacionaria',ind:[],prevId:prev?prev.id:null,texto:'',created:Date.now(),updated:Date.now()};
-  if(prev){e.dx=clone(prev.dx).filter(d=>d.estado!=='RESUELTO').map(d=>({...d,a:''}));e.ex=clone(prev.ex);e.ind=clone(prev.ind);e.fv.o2=prev.fv.o2||'AA';e.Pextra=carryPlan(h,prev.Pextra);e.Aest=prev.Aest||'estable';e.Aevo=prev.Aevo||'estacionaria'}
-  else{e.dx=probLines(h.ing.prob).map(t=>({t,estado:'ESTABLE',a:'',p:''}));e.ex={};Object.keys(EXLBL).forEach(k=>{const iv=String((h.ing.ex||{})[k]||'');e.ex[k]=(!iv.trim()||iv===DB.settings.ex[k]||iv===EXDEF[k])?exEvDef(h,k):iv});e.ind=clone(h.ing.ind);e.fv.o2=h.ing.fv.o2||'AA';e.Pextra=lines(h.ing.plan).filter(l=>!pendType(l)).join('\n')}
-  if(!e.dx.length)e.dx=[{t:'',estado:'ESTABLE',a:'',p:''}];
-  return e;
+  const e={id:uid(),v:2,hid:h.id,dni:h.dni,fecha,hora:nowHM(),estado:'borrador',probT:'',S:'',O:'',A:DEF_A,P:'',fv:{pas:'',pad:'',fc:'',fr:'',t:'',sat:'',o2:'AA'},labSel:{},ind:[],prevId:prev?prev.id:null,texto:'',created:Date.now(),updated:Date.now()};
+  if(prev){evNorm(prev);e.probT=lines(prev.probT).filter(l=>!/\(RESUELTO\)/i.test(l)).join('\n');e.O=prev.O||defO(h);e.ind=clone(prev.ind||[]);e.P=carryPlan(h,prev.P);
+    const a1=(String(prev.A||'').match(/^Paciente[^.]*\./i)||[])[0];if(a1)e.A=a1}
+  else{const g=h.ing;e.probT=probLines(g.prob).join('\n');const ex={};Object.keys(EXLBL).forEach(k=>{const iv=String((g.ex||{})[k]||'');ex[k]=(!iv.trim()||iv===DB.settings.ex[k]||iv===EXDEF[k])?exEvDef(h,k):iv});
+    e.O=buildO(ex);e.ind=clone(g.ind);e.P=lines(g.plan).join('\n')}
+  e.P=addPendToPlan(h,e.P);return e;
 }
 function exEvDef(h,k){let v=(DB.settings.exEv||EXEV)[k]||'';if(P(h.dni).sexo==='M')v=v.replace('Despierta','Despierto').replace('orientada','orientado');return v}
 // el plan se arrastra al día siguiente sin lo que era "Hoy …" ni pendientes ya resueltos
-function carryPlan(h,t){const res=h.pend.filter(x=>x.estado===2).map(x=>deacc(x.t)).filter(Boolean);
+function carryPlan(h,t){t=String(t||'');const res=h.pend.filter(x=>x.estado===2).map(x=>deacc(x.t)).filter(Boolean);
   return lines(t).filter(l=>{const u=deacc(l);if(/^HOY\b/.test(u))return false;if(/^(PENDIENTE|SS)\b/.test(u)&&res.some(r=>u.includes(r)))return false;return true}).join('\n')}
 function prevRef(e){const h=DB.hosps[e.hid];const p=e.prevId&&DB.evols[e.prevId];return p?p.fecha:h.ingreso}
 function refTime(e){const h=DB.hosps[e.hid];const p=e.prevId&&DB.evols[e.prevId];return p?(p.closedAt||p.created):(h.ing.completedAt||0)}
@@ -138,38 +156,28 @@ function pendActive(h){return h.pend.filter(x=>x.estado<2&&x.t.trim())}
 function fvEv(fv){const L=[];if(fv.pas||fv.pad)L.push('PA '+(fv.pas||'?')+'/'+(fv.pad||'?')+' mmHg');if(fv.fc)L.push('FC '+fv.fc+' lpm');if(fv.fr)L.push('FR '+fv.fr+' rpm');
   if(fv.t)L.push('T° '+fv.t+' °C');if(fv.sat)L.push('SatO2 '+fv.sat+'%'+(fv.o2?' ('+fv.o2+')':''));return L.length?L.join(', ')+'.':''}
 function autorTxt(a){a=String(a||'').trim();return /[a-z]/.test(a)?a:a.split(/\s+/).map(w=>w.length<=2?w:w[0]+w.slice(1).toLowerCase()).join(' ')}
-function planLines(e,h){const dx=e.dx.filter(d=>d.t.trim()),P=[];dx.forEach(d=>lines(d.p).forEach(x=>P.push(x)));lines(e.Pextra).forEach(x=>P.push(x));
-  pendActive(h).forEach(x=>{const lb=sc(pendLabel(x));if(deacc(P.join(' ')).includes(deacc(lb)))return;P.push(x.estado===0?(x.tipo==='IC'?lb:'SS '+lb):'Pendiente '+lb)});
-  if(h.alta&&h.alta.fecha===e.fecha)P.push('Alta.');return P}
-// Formato del servicio (MR Zeballos): encabezado, problemas, S) O) LAB / Imágenes / Procedimientos, A) narrativa, P) líneas cortas
-function evolText(e){
-  const h=DB.hosps[e.hid],p=P(h.dni),S=DB.settings,L=[];
-  L.push([sc(S.servicio||'Reumatología'),h.cama,S.sede].map(x=>String(x||'').trim()).filter(Boolean).join(' '));
-  if(S.autor)L.push(autorTxt(S.autor));
-  const dx=e.dx.filter(d=>d.t.trim());
-  L.push('','Paciente'+(p.edad?' de '+p.edad+' años':'')+(dx.length?' con los siguientes problemas:':'.'));
-  dx.forEach(d=>L.push('- '+dot(sc(d.t.trim())+(d.estado==='RESUELTO'?' (resuelto)':''))));
-  L.push('','S) '+(e.S.trim()?dot(sc(e.S.trim())):'Paciente sin molestias nuevas.'));
-  const ex=e.ex||{};L.push('','O) '+dot(sc(String(ex.gen||'').trim()||'REG, REH, REN')));
-  const fv=fvEv(e.fv||{});if(fv)L.push('FV: '+fv);
-  Object.keys(EVLBL).forEach(k=>{const v=String(ex[k]||'').trim();if(v)L.push(EVLBL[k]+': '+dot(sc(v)))});
-  const B=fmtLabsEvol(h.labs.filter(l=>labSelected(e,l))),ic=[];
+function labBlock(e){const h=DB.hosps[e.hid];const B=fmtLabsEvol(h.labs.filter(l=>labSelected(e,l))),ic=[];
   const have=deacc(B.img.concat(B.proc,B.lab).join(' '));
   h.pend.filter(x=>x.estado===2&&x.fres&&x.fres<=e.fecha&&String(x.res||'').trim()).forEach(x=>{const r=sc(x.res.trim());if(x.tipo!=='IC'&&have.includes(deacc(r.slice(0,30))))return;
     const t=dm(x.fres)+' '+sc(pendLabel(x))+': '+dot(r);(x.tipo==='IMAGEN'?B.img:x.tipo==='PROCEDIMIENTO'?B.proc:x.tipo==='IC'?ic:B.lab).push(t)});
-  if(B.lab.length)L.push('','LAB',...B.lab);
-  if(B.img.length)L.push('','Imágenes',...B.img);
-  if(B.proc.length)L.push('','Procedimientos',...B.proc);
-  if(ic.length)L.push('','Interconsultas',...ic);
-  let a='Paciente '+(e.Aest||'estable')+', con evolución clínica '+(e.Aevo||'estacionaria')+'.';
-  if(String(e.Aextra||'').trim())a+=' '+dot(sc(e.Aextra.trim()));
-  dx.forEach(d=>{if(String(d.a||'').trim())a+=' '+dot(sc(d.a.trim()))});
-  L.push('','A) '+a);
-  const Pl=planLines(e,h);if(!Pl.length)Pl.push('Continuar manejo actual.');
-  L.push('','P) '+dot(sc(Pl[0])),...Pl.slice(1).map(x=>dot(sc(x))));
+  const L=[];if(B.lab.length)L.push('','LAB',...B.lab);if(B.img.length)L.push('','Imágenes',...B.img);if(B.proc.length)L.push('','Procedimientos',...B.proc);if(ic.length)L.push('','Interconsultas',...ic);return L}
+function evHeader(e){const h=DB.hosps[e.hid],S=DB.settings,L=[[sc(S.servicio||'Reumatología'),h.cama,S.sede].map(x=>String(x||'').trim()).filter(Boolean).join(' ')];if(S.autor)L.push(autorTxt(S.autor));return L}
+// Formato del servicio: encabezado, problemas, S) O) LAB / Imágenes / Procedimientos, A) y P), todo en texto
+function evolText(e){evNorm(e);
+  const h=DB.hosps[e.hid],p=P(h.dni),S=DB.settings,L=evHeader(e);
+  const pr=lines(e.probT);
+  L.push('','Paciente'+(p.edad?' de '+p.edad+' años':'')+(pr.length?' con los siguientes problemas:':'.'));
+  pr.forEach(l=>{const sub=/^(--|•|·)/.test(l);const t=l.replace(/^[-•·*\d.)\s]+/,'').trim();if(t)L.push((sub?'   -- ':'- ')+dot(sc(t)))});
+  L.push('','S) '+(String(e.S||'').trim()?dot(sc(e.S.trim())):'Paciente sin molestias nuevas.'));
+  const O=lines(e.O).map(x=>sc(x));L.push('','O) '+(O[0]||'REG, REH, REN.'),...O.slice(1));
+  const fv=fvEv(e.fv||{});if(fv)L.push('FV: '+fv);
+  L.push(...labBlock(e));
+  L.push('','A) '+(sc(String(e.A||'').trim())||DEF_A));
+  const Pl=lines(e.P).map(x=>dot(sc(x)));if(h.alta&&h.alta.fecha===e.fecha&&!Pl.some(x=>/^alta/i.test(x)))Pl.push('Alta.');if(!Pl.length)Pl.push('Continuar manejo actual.');
+  L.push('','P) '+Pl[0],...Pl.slice(1));
   if(S.evInd){L.push('','Indicaciones');
     if(h.alta&&h.alta.fecha===e.fecha){L.push('1. Alta médica.','2. Indicaciones para casa:');altaInd(h).forEach(x=>L.push('   - '+dot(x.t)));altaExtra(h).forEach(x=>L.push('   - '+x))}
-    else{const it=indText(e.ind,true,e.fecha);if(it)L.push(it)}}
+    else{const it=indText(e.ind||[],true,e.fecha);if(it)L.push(it)}}
   const t=L.join('\n');return S.evMayus?up(t):t;
 }
 /* ---------- alta ---------- */
@@ -179,7 +187,7 @@ function altaInd(h){return (h.alta?.ind||[]).filter(x=>x.t.trim())}
 function altaExtra(h){const a=h.alta,L=[];if(a.control.trim())L.push(dot(a.control));if(a.dm)L.push('DESCANSO MÉDICO HASTA EL '+fmtD(a.dm)+'.');return L}
 function startAlta(h,fecha){
   const le=evolsOf(h.id)[0];
-  const dx=le?le.dx.filter(d=>d.t.trim()&&d.estado!=='RESUELTO').map(d=>d.t.trim()):probLines(h.ing.prob);
+  const dx=le?probLines(evNorm(le).probT).filter(x=>!/\(RESUELTO\)/i.test(x)):probLines(h.ing.prob);
   const src=le?le.ind:h.ing.ind;
   h.alta={fecha,dx:dx.join('\n'),ind:src.filter(x=>x.t.trim()).map(x=>({id:uid(),t:x.t,flag:flagInd(x.t)})),control:DB.settings.control,dm:'',citt:false,chk:{},confirmed:false};
 }
@@ -201,7 +209,7 @@ function epicrisisData(h){
   if(tr.size){L.push('','TRATAMIENTO RECIBIDO:');[...tr.values()].sort((x,y)=>x.a.localeCompare(y.a)).forEach(c=>L.push('- '+c.t+' ('+fmtD(c.a).slice(0,5)+(c.b!==c.a?' – '+fmtD(c.b).slice(0,5):'')+')'))}
   PTIPOS.forEach(t=>{const r=h.pend.filter(x=>x.tipo===t&&x.estado===2);if(r.length){L.push('',{IC:'INTERCONSULTAS',IMAGEN:'IMÁGENES',PROCEDIMIENTO:'PROCEDIMIENTOS',LABORATORIO:'OTROS EXÁMENES',OTRO:'OTROS'}[t]+':');r.forEach(x=>L.push('- '+(x.fres?fmtD(x.fres)+' ':'')+x.t.trim()+(x.res?': '+dot(x.res):'')))}});
   const ev=evolsOf(h.id).slice().reverse();
-  if(ev.length){L.push('','EVOLUCIÓN POR DÍA:');ev.forEach(e=>L.push('- DH '+dh(h,e.fecha)+' ('+fmtD(e.fecha)+'): '+e.dx.filter(d=>d.t.trim()).map(d=>d.t.trim()+' '+d.estado+(d.a.trim()?' ('+d.a.trim()+')':'')).join('; ')+'.'))}
+  if(ev.length){L.push('','EVOLUCIÓN POR DÍA:');ev.forEach(e=>{evNorm(e);L.push('- DH '+dh(h,e.fecha)+' ('+fmtD(e.fecha)+'): '+String(e.A||'').replace(/\s+/g,' ').trim())})}
   return up(L.join('\n'));
 }
 
@@ -358,67 +366,69 @@ function vHosp(){
 }
 
 /* ---- Importar evolución previa (texto) ---- */
-const SECRE=[['dx',/^(PACIENTE\b[^:]{0,60}\bCON\b[^:]{0,40}?(PROBLEMAS|DX|DIAGNOSTICOS?)\s*:|PROBLEMAS?\b\s*:?|DIAGNOSTICOS?( DE TRABAJO| PRESUNTIVOS?| ACTIVOS)?\b\s*:?|DX\b\s*:?|IMPRESION DIAGNOSTICA\b\s*:?|I\.?D\.?\s*:)/],
- ['S',/^(S|SUBJETIVO)\s*[:)]/],['fv',/^(FUNCIONES VITALES|SIGNOS VITALES|FV|SV)\b\s*:?/],
- ['O',/^(O|OBJETIVO|EXAMEN FISICO|AL EXAMEN( FISICO)?|EF)\b\s*[:)]?/],['lab',/^(EXAMENES AUXILIARES|EXS? AUX\w*|LABORATORIO|LAB|RESULTADOS|PERFIL INMUNOLOGICO)\b\s*:?/],
- ['txt',/^(IMAGENES|PROCEDIMIENTOS|INTERCONSULTAS)\s*:?\s*$/],['A',/^(A|APRECIACION|ANALISIS|EVALUACION)\s*[:)]/],
- ['P',/^(P|PLAN( DE TRABAJO)?|CONDUCTA)\b\s*[:)]?/],['ind',/^(INDICACIONES\b\s*:?|(TRATAMIENTO|TTO|RP)\s*:)/],['pend',/^PENDIENTES?\s*:\s*$|^PENDIENTES\s*:/]];
+const SECRE=[['dx',/^(PACIENTE\b[^:]{0,80}\bCON\b[^:]{0,40}?(PROBLEMAS|DX|DIAGNOSTICOS?)\s*:|PROBLEMAS?\b\s*:?|DIAGNOSTICOS?( DE TRABAJO| PRESUNTIVOS?| ACTIVOS)?\b\s*:?|DX\b\s*:?|IMPRESION DIAGNOSTICA\b\s*:?|I\.?D\.?\s*:)/],
+ ['S',/^(S|SUBJETIVO)\s*[:)}\].-]|^SUBJETIVO\b/],['fv',/^(FUNCIONES VITALES|SIGNOS VITALES)\b\s*:?/],
+ ['O',/^(O|OBJETIVO|EXAMEN FISICO|AL EXAMEN( FISICO)?|EF)\b\s*[:)}\].-]?|^[0Q]\s*[)}\]]/],['lab',/^(EXAMENES AUXILIARES|EXS? AUX\w*|LABORATORIO|LAB|RESULTADOS|PERFIL INMUNOLOGICO)\b\s*:?/],
+ ['txt',/^(IMAGENES|PROCEDIMIENTOS|INTERCONSULTAS)\s*:?\s*$/],['A',/^(A|APRECIACION|ANALISIS|EVALUACION)\s*[:)}\].-]|^(APRECIACION|ANALISIS|EVALUACION)\b/],
+ ['P',/^(P|PLAN( DE TRABAJO)?|CONDUCTA)\b\s*[:)}\].-]?/],['ind',/^(INDICACIONES\b\s*:?|(TRATAMIENTO|TTO|RP)\s*:)/],['pend',/^PENDIENTES?\s*:\s*$|^PENDIENTES\s*:/]];
 const EXRE=[['gen',/^(GENERAL|ESTADO GENERAL|EG|EGRAL|APARIENCIA)\b/],['piel',/^(PIEL( Y (FANERAS|MUCOSAS))?|PYF)\b/],['tcsc',/^(TCSC|TEJIDO CELULAR( SUBCUTANEO)?)\b/],['osteo',/^(OSTEO\w*|ARTICULAR|LOCOMOTOR|SOMA|MUSCULOESQUELETICO|EXTREMIDADES)\b/],
  ['resp',/^(TORAX( Y PULMONES)?|TYP|T Y P|PULMONES|RESPIRATORIO|AP|APARATO RESPIRATORIO)\b/],['cv',/^(CV|CARDIOVASCULAR|CARDIO\w*|CORAZON|RCR|ACV)\b/],['abd',/^(ABD\w*)\b/],['gu',/^(GU|GENITOURINARIO|GENITO\w*|URINARIO|RENAL)\b/],['neuro',/^(NEURO\w*|SNC|SN)\b/]];
 function stripNum(l){return l.replace(/^\s*(?:[-•·*]|\d+\s*[.)\-]|[a-z]\))\s*/i,'').trim()}
+// Evolución en texto (TXT, ESSI, PDF o foto) → bloques de texto tal cual (problemas, S, O, A, P) + labs, informes y pendientes
 function parseEvol(text,fecha){
-  const out={dx:[],S:[],O:[],lab:[],txt:[],A:[],P:[],ind:[],pend:[],fv:[],ex:{}};let sec=null,exk=null,cama='',edad='';
-  text.split(/\r?\n/).forEach(raw=>{let l=raw.replace(/\s+/g,' ').trim();if(!l)return;let u=deacc(l);
-    if(!sec){const hm=u.match(/^REUMATOLOG\w*\s*-?\s*(\d{2,4}\s*-?\s*[A-Z]?)\b/);if(hm){cama=hm[1].replace(/\s+/g,'');return}}
+  text=String(text||'').replace(/\r/g,'').replace(/[ \t]+([SOAP])\s*\)\s+/g,'\n$1) ').replace(/[ \t]+(LAB|Imágenes|IMÁGENES|Procedimientos|PROCEDIMIENTOS|Plan|PLAN)\s*\n/g,'\n$1\n');
+  const out={dx:[],S:[],O:[],lab:[],txt:[],A:[],P:[],ind:[],pend:[],fv:[]};let sec=null,cama='',edad='';
+  text.split('\n').forEach(raw=>{let l=raw.replace(/\s+/g,' ').trim();if(!l)return;let u=deacc(l);
+    if(!sec){const hm=u.match(/^REUMATOLOG\w*\s*-?\s*(\d{2,4}\s*-?\s*[A-Z]?)\b/);if(hm){cama=hm[1].replace(/\s+/g,'');return}if(/^M[RC]\s+\S+$/.test(u))return}
     const em=u.match(/^PACIENTE\b.*?\bDE (\d{1,3}) ANOS/);if(em)edad=em[1];
-    for(const[k,re]of SECRE){const m=u.match(re);if(m&&(k!=='pend'||sec!=='P')&&(k!=='P'||!/^(PA|PCR|PCO|PO2|PLAQ|PROT|PH)\b/.test(u))&&(k!=='A'||/^A\s*[:)]|^APRE|^ANALI|^EVALU/.test(u))&&(k!=='O'||!/^(OJOS|OIDOS|OSTEO)/.test(u))){sec=k;exk=null;l=l.slice(m[0].length).replace(/^[\s:.)\-]+/,'').trim();u=deacc(l);break}}
+    for(const[k,re]of SECRE){const m=u.match(re);if(m&&(k!=='pend'||sec!=='P')&&(k!=='P'||!/^(PA|PCR|PCO|PO2|PLAQ|PLA|PROT|PH|PT|PCT)\b/.test(u))&&(k!=='A'||!/^(AL|ALB|ANA|ANCA|AREG)\b/.test(u))&&(k!=='O'||!/^(OJOS|OIDOS|OSTEO)/.test(u))&&(k!=='dx'||!sec||!/^PACIENTE/.test(u)||sec==='dx'||!['S','O','A','P'].includes(sec))){sec=k;l=l.slice(m[0].length).replace(/^[\s:.)}\]\-]+/,'').trim();u=deacc(l);break}}
     if(!l)return;
-    if(sec==='O'){l=l.replace(/^[-•·*]\s*/,'');u=deacc(l)}
-    if(sec==='O'||(!['ind','lab','txt','P','dx','A','pend'].includes(sec)&&/^[^:]{2,30}:/.test(u)&&EXRE.some(([k,re])=>re.test(u)))){if(sec!=='O')sec='O';for(const[k,re]of EXRE){const m=u.match(re);if(m){const rest=l.slice(m[0].length).replace(/^[^:]*?:\s*/,'').replace(/^[\s:.\-]+/,'');exk=k;out.ex[k]=(out.ex[k]?out.ex[k]+' ':'')+rest;return}}
-      if(/^(PA|FC|FR|T°|T |SAT|SATO2|PESO)\b/.test(u)&&!out.O.length){out.fv.push(l);return}if(exk){out.ex[exk]+=' '+l;return}out.O.push(l);return}
+    // líneas de examen sueltas ("Piel: …") fuera de una sección → O
+    if(!sec&&/^[^:]{2,30}:/.test(u)&&EXRE.some(([k,re])=>re.test(u)))sec='O';
     if(sec)out[sec].push(l)});
   const r={cama,edad};
   r.dx=out.dx.map(stripNum).map(x=>x.replace(/:\s*(ESTABLE|EN MEJORIA|EN MEJORÍA|ESTACIONARIO|EN DETERIORO)\b.*$/i,'').replace(/\.$/,'')).filter(Boolean);
-  if(!r.dx.length&&out.A.length&&!/^PACIENTE\b/i.test(deacc(out.A[0])))r.dx=out.A.map(stripNum).map(x=>x.split(/:|,/)[0].trim()).filter(x=>x.length>2);
+  r.probT=r.dx.join('\n');
   r.ind=out.ind.map(stripNum).filter(x=>x&&!/^(ALTA MEDICA|INDICACIONES PARA CASA)/i.test(deacc(x))).map(x=>{let fi='';const m=x.match(/\(?\bD(?:IA)?\s?(\d{1,3})\)?\.?\s*$/i);if(m&&fecha){const d=new Date(dUTC(fecha)-(+m[1]-1)*864e5);fi=d.toISOString().slice(0,10);x=x.replace(m[0],'').trim()}return {t:up(x.replace(/\.$/,'')),fi}});
-  r.ex={};Object.keys(out.ex).forEach(k=>{if(out.ex[k].trim())r.ex[k]=out.ex[k].trim()});if(out.O.length&&!r.ex.gen)r.ex.gen=out.O.join(' ');
-  // P): "Pendiente X" = solicitado; "SS X" = por solicitar; "IC X" = interconsulta por pedir. El resto queda como plan.
-  const pl=out.P.map(stripNum).filter(Boolean);r.pend=[];r.plan=[];
-  out.pend.flatMap(x=>stripNum(x).split(/;\s*/)).map(x=>x.trim()).filter(Boolean).forEach(t=>r.pend.push({t,estado:1}));
-  pl.forEach(x=>{const u=deacc(x);let m;
-    if((m=x.match(/^pendientes?\s*:?\s*/i))&&x.length>m[0].length)x.slice(m[0].length).split(/,\s*pendientes?\s+/i).forEach(t=>r.pend.push({t:t.replace(/\.$/,''),estado:1}));
-    else if(/^SS\b/.test(u))r.pend.push({t:x.replace(/^ss\s*/i,'').replace(/\.$/,''),estado:0});
-    else if(/^IC\b/.test(u))r.pend.push({t:x.replace(/\.$/,''),estado:0});
-    else r.plan.push(x)});
+  r.O=out.fv.map(x=>'FV: '+x).concat(out.O.map(x=>x.replace(/^[-•·*]\s*/,''))).join('\n');
+  r.S=out.S.join(' ');r.A=out.A.join(' ');
+  const pl=out.P.map(x=>x.replace(/^[-•·*]\s*/,'').trim()).filter(Boolean);r.P=pl.join('\n');
+  r.pend=out.pend.flatMap(x=>stripNum(x).split(/;\s*/)).map(x=>x.trim()).filter(Boolean).map(t=>({t,estado:1})).concat(pendFromPlan(pl));
+  r.plan=pl;
   const lr=parseEvLabs(out.lab,fecha);r.labs=lr.rows.length?lr.rows:parseLabs(out.lab.join('\n'),fecha).rows;
-  r.txt=parseEvTexts(out.txt,fecha);
-  r.fv=out.fv.join(' ');r.S=out.S.join(' ');
+  r.txt=parseEvTexts(out.txt,fecha);r.fv='';
+  r.found=['dx','S','O','A','P'].filter(k=>out[k].length);
   return r;
 }
+// guarda una evolución importada (ya parseada) en la hospitalización; devuelve la evolución
+function importEvolInto(h,r,f,text){
+  let e=evolOn(h.id,f);if(!e){e={id:uid(),hid:h.id,dni:h.dni,fecha:f,hora:'08:00',labSel:{},created:Date.now()};DB.evols[e.id]=e}
+  const prev=evolsOf(h.id).find(x=>x.fecha<f);if(prev)evNorm(prev);
+  Object.assign(e,{v:2,estado:'final',imported:true,probT:r.probT||(prev?prev.probT:probLines(h.ing.prob).join('\n')),S:r.S||'',O:r.O||(prev&&prev.O)||defO(h),A:r.A||DEF_A,P:r.P||'',fv:{pas:'',pad:'',fc:'',fr:'',t:'',sat:'',o2:'AA'},
+    ind:r.ind&&r.ind.length?r.ind.map(x=>({id:uid(),t:x.t,fi:x.fi||''})):clone((prev&&prev.ind)||h.ing.ind||[]),prevId:prev?prev.id:null,texto:String(text||'').trim(),updated:Date.now(),closedAt:Date.now()});
+  ['dx','ex','Aextra','Pextra','Aest','Aevo','exChg'].forEach(k=>delete e[k]);
+  Object.values(DB.evols).forEach(x=>{if(x.hid===h.id&&x.fecha>f&&(!x.prevId||(DB.evols[x.prevId]&&DB.evols[x.prevId].fecha<f)))x.prevId=e.id});
+  const p=DB.patients[h.dni];if(p&&r.edad&&!p.edad)p.edad=r.edad;if(r.cama&&!h.cama)h.cama=up(r.cama);
+  r.labs.forEach(row=>addRowLab(h,row,false));(r.txt||[]).forEach(t=>addTxtLab(h,t));
+  r.pend.forEach(q=>{const k=deacc(q.t);if(!h.pend.some(x=>deacc(x.t)===k||deacc(pendLabel(x))===k))h.pend.push({id:uid(),tipo:pendType(q.t)||'OTRO',t:q.t,estado:q.estado,res:'',fres:'',created:Date.now()})});
+  if(h.ing.estado==='previo'&&!h.ing.prob.trim())h.ing.prob=e.probT;
+  return e}
 let IMP={text:'',r:null,fecha:null};
 function vImport(){
   const h=DB.hosps[R.hid];if(!h){R.v='censo';return vCenso()}const p=P(h.dni);if(!IMP.fecha||IMP.hid!==h.id){IMP={text:'',r:null,fecha:addDays(R.fecha,-1),hid:h.id}}
   CUR={root:h,hid:h.id,dni:h.dni,mount(){LABSTATE.text=IMP.text;$('#lfotos').onchange=ev=>ocrFiles([...ev.target.files]).then(()=>{IMP.text=$('#ltext').value});$('#lpdf').onchange=ev=>pdfFiles([...ev.target.files]).then(()=>{IMP.text=$('#ltext').value});$('#ltext').oninput=e=>{IMP.text=e.target.value;LABSTATE.text=e.target.value}},async click(a){
     if(a==='manual'){IMP={text:'',r:null,fecha:null};LABSTATE.text='';return go('ingreso',{hid:h.id,tab:'prob'})}
-    if(a==='parse'){IMP.text=$('#ltext').value;IMP.fecha=$('#ifecha').value||IMP.fecha;IMP.r=parseEvol(IMP.text,IMP.fecha);rerender();if(!IMP.r.dx.length&&!IMP.r.ind.length)toast('No encontré problemas ni indicaciones. Revisa o usa “Copiar para Claude”.')}
+    if(a==='parse'){IMP.text=$('#ltext').value;IMP.fecha=$('#ifecha').value||IMP.fecha;IMP.r=parseEvol(IMP.text,IMP.fecha);rerender();const miss=['dx','S','O','A','P'].filter(k=>!IMP.r.found.includes(k));if(miss.length)toast('No encontré: '+miss.map(k=>({dx:'problemas',S:'S)',O:'O)',A:'A)',P:'P)'})[k]).join(', ')+'. Revisa abajo')}
     else if(a==='claude'){const t='Reordena esta evolución médica SIN inventar datos, con estos encabezados exactos, cada uno en su línea:\nPROBLEMAS: (uno por línea, numerados)\nEXAMEN FÍSICO: (una línea por sistema: GENERAL:, PIEL:, TCSC:, OSTEOARTICULAR:, TÓRAX Y PULMONES:, CARDIOVASCULAR:, ABDOMEN:, GENITOURINARIO:, NEUROLÓGICO:)\nEXÁMENES AUXILIARES: (una línea por fecha: dd/mm/aaaa: EXAMEN valor, EXAMEN valor)\nPLAN: (uno por línea)\nPENDIENTES: (uno por línea)\nINDICACIONES: (una por línea, numeradas; conserva el (D3) si lo tiene)\n\n'+anonLabText($('#ltext').value);
       copyText(t).then(o=>toast(o?'Copiado sin nombre/DNI. Pega la respuesta de Claude en el cuadro y vuelve a Procesar':'No se pudo copiar'))}
     else if(a==='apply'){const r=IMP.r,f=IMP.fecha;if(!f)return toast('Pon la fecha de la evolución');if(f<h.ingreso)return toast('La fecha es anterior al ingreso ('+fmtD(h.ingreso)+')');
-      r.dx=lines($('#idx').value).map(stripNum);r.ind=lines($('#iind').value).map(x=>{const o=r.ind.find(y=>y.t===up(stripNum(x)));return {t:up(stripNum(x)),fi:o?o.fi:''}});
-      let e=evolOn(h.id,f);if(e&&!await ask('Ya hay una evolución del '+fmtD(f)+'. ¿Reemplazarla con la importada?'))return;
-      if(!e){e={id:uid(),hid:h.id,dni:h.dni,fecha:f,hora:'08:00',labSel:{},exChg:{},created:Date.now()};DB.evols[e.id]=e}
-      const prev=evolsOf(h.id).find(x=>x.fecha<f);
-      const exBase={};Object.keys(EXLBL).forEach(k=>exBase[k]=prev?(prev.ex||{})[k]:exEvDef(h,k));
-      Object.assign(e,{estado:'final',imported:true,dx:r.dx.map(t=>({t,estado:'ESTABLE',a:'',p:''})),fv:{pas:'',pad:'',fc:'',fr:'',t:'',sat:'',o2:'AA'},S:r.S||'',Aest:'estable',Aevo:'estacionaria',
-        ex:Object.assign(exBase,r.ex),ind:r.ind.map(x=>({id:uid(),t:x.t,fi:x.fi||''})),Aextra:'',Pextra:r.plan.join('\n'),prevId:prev?prev.id:null,texto:IMP.text.trim(),updated:Date.now(),closedAt:Date.now()});
-      if(r.edad&&!p.edad)p.edad=r.edad;if(r.cama&&!h.cama)h.cama=r.cama;
-      Object.values(DB.evols).forEach(x=>{if(x.hid===h.id&&x.fecha>f&&(!x.prevId||(DB.evols[x.prevId]&&DB.evols[x.prevId].fecha<f)))x.prevId=e.id});
-      let nl=0;if($('#ilabs')?.checked){(r.txt||[]).forEach(t=>{let L=h.labs.find(l=>l.fecha===t.fecha&&l.area==='OTROS');if(!L){L={id:uid(),fecha:t.fecha,area:'OTROS',items:[],created:0};h.labs.push(L)}if(!L.items.some(i=>deacc(i.n||'')===deacc(t.titulo))){L.items.push({k:'TXT_'+uid(),n:t.titulo,v:t.texto});nl++}});r.labs.forEach(row=>{const area=LABMAP[row.k]?LABMAP[row.k].a:'OTROS';let L=h.labs.find(l=>l.fecha===row.fecha&&l.area===area);if(!L){L={id:uid(),fecha:row.fecha,area,items:[],created:0};h.labs.push(L)}if(!L.items.find(i=>i.k===row.k)){L.items.push({k:row.k,v:up(row.v)});nl++}})}
-      let np=0;if($('#ipend')?.checked)r.pend.forEach(q=>{if(!h.pend.some(x=>deacc(x.t)===deacc(q.t))){h.pend.push({id:uid(),tipo:pendType(q.t)||'OTRO',t:q.t,estado:q.estado,res:'',fres:'',created:Date.now()});np++}});
-      if(h.ing.estado==='previo'){if(!h.ing.prob.trim())h.ing.prob=r.dx.join('\n');if(!h.ing.ind.length)h.ing.ind=clone(e.ind)}
-      const hoy=evolOn(h.id,R.fecha);
-      if(hoy&&hoy.id!==e.id&&hoy.estado==='borrador'&&await ask('La evolución de hoy ya estaba creada (borrador). ¿Rellenarla con los problemas, examen e indicaciones importados?')){hoy.dx=e.dx.map(d=>({...d}));hoy.ex=clone(e.ex);hoy.ind=clone(e.ind);hoy.Pextra=e.Pextra;hoy.prevId=e.id}
-      save();IMP={text:'',r:null,fecha:null};LABSTATE={text:'',rows:null,unk:[],fecha:null,busy:''};toast('Evolución del '+fmtD(f)+' importada'+(nl?' · '+nl+' labs':'')+(np?' · '+np+' pendientes':''));go('hosp',{hid:h.id})}}};
+      r.probT=$('#idx').value.trim();r.O=$('#iO').value.trim();r.P=$('#iP').value.trim();
+      if(evolOn(h.id,f)&&!await ask('Ya hay una evolución del '+fmtD(f)+'. ¿Reemplazarla con la importada?'))return;
+      const e=importEvolInto(h,r,f,IMP.text);
+      let hoy=evolOn(h.id,R.fecha);if(hoy&&hoy.id!==e.id&&hoy.estado!=='final'&&await ask('La evolución de hoy ya estaba creada (borrador). ¿Rehacerla a partir de la importada?')){delete DB.evols[hoy.id];hoy=null}
+      if(!hoy&&f<R.fecha){hoy=newEvol(h,R.fecha);DB.evols[hoy.id]=hoy}
+      save();IMP={text:'',r:null,fecha:null};LABSTATE={text:'',rows:null,unk:[],fecha:null,busy:''};toast('Evolución del '+fmtD(f)+' importada');
+      if(hoy)go('evol',{eid:hoy.id,hid:h.id});else go('hosp',{hid:h.id})}}};
   const r=IMP.r;
   return `<div class="card"><div class="pt"><div><div class="nm">${R.first?'Paso 2 · Sube su última evolución':'Importar evolución previa'} · ${esc(p.nombre)}</div><div class="muted">Cama ${esc(h.cama||'—')} · Ingreso ${fmtD(h.ingreso)}</div></div><button class="btn" onclick="go('hosp',{hid:'${h.id}'})">${R.first?'Hacerlo después':'← Volver'}</button></div>
    ${R.first?'<div class="row" style="margin-top:10px"><span class="muted">¿No tienes su evolución a la mano?</span><button class="btn sm" data-act="manual">Cargar problemas e indicaciones a mano</button></div>':''}</div>
@@ -430,13 +440,12 @@ function vImport(){
    <textarea id="ltext" rows="12" style="margin-top:8px" placeholder="Pega aquí la evolución completa…">${esc(IMP.text)}</textarea>
    <div class="row" style="margin-top:8px"><button class="btn pri" data-act="parse">Procesar</button><span class="sp"></span><button class="btn sm" data-act="claude">Copiar para Claude (sin nombre/DNI)</button></div></div>
   ${r?`<div class="card"><h3>2 · Revisa lo encontrado</h3>
-   <label>Problemas (uno por línea)</label><textarea id="idx" rows="${Math.max(3,r.dx.length+1)}">${esc(r.dx.join('\n'))}</textarea>
-   <label style="margin-top:10px">Indicaciones (una por línea)</label><textarea id="iind" rows="${Math.max(3,r.ind.length+1)}">${esc(r.ind.map(x=>x.t).join('\n'))}</textarea>
-   ${r.ind.some(x=>x.fi)?'<p class="muted">Las que traían (Dn) quedan con su fecha de inicio calculada.</p>':''}
-   <h4>Examen físico (${Object.keys(r.ex).length} sistema(s); lo que falte se copia de la evolución anterior o del normal)</h4>${Object.keys(r.ex).map(k=>`<div class="muted"><b>${EXLBL[k]}:</b> ${esc(r.ex[k])}</div>`).join('')||'<div class="muted">Nada reconocido.</div>'}
-   <h4>Plan general</h4><div class="muted">${esc(r.plan.join(' · ')||'—')}</div>
-   <label class="chk" style="margin-top:10px"><input type="checkbox" id="ipend" checked> Agregar ${r.pend.length} pendiente(s): ${esc(r.pend.map(q=>(q.estado?'Pendiente ':'Por pedir: ')+q.t).join('; ')||'—')}</label>
-   <label class="chk" style="margin-top:6px"><input type="checkbox" id="ilabs" checked> Guardar ${r.labs.length} resultado(s) de laboratorio${(r.txt||[]).length?' y '+r.txt.length+' informe(s) (imágenes/procedimientos)':''}</label>
+   <label>Problemas</label><textarea id="idx" rows="${Math.max(3,lines(r.probT).length+1)}">${esc(r.probT)}</textarea>
+   <label style="margin-top:10px">O) Examen</label><textarea id="iO" rows="${Math.max(3,lines(r.O).length+1)}">${esc(r.O)}</textarea>
+   <label style="margin-top:10px">P) Plan</label><textarea id="iP" rows="${Math.max(3,lines(r.P).length+1)}">${esc(r.P)}</textarea>
+   <div class="muted" style="margin-top:6px">S): ${esc(r.S||'—')}<br>A): ${esc(r.A||'—')}</div>
+   <label class="chk" style="margin-top:10px"><input type="checkbox" id="ipend" checked disabled> Se agregan ${r.pend.length} pendiente(s): ${esc(r.pend.map(q=>(q.estado?'Pendiente ':'Por pedir: ')+q.t).join('; ')||'—')}</label>
+   <label class="chk" style="margin-top:6px"><input type="checkbox" id="ilabs" checked disabled> Se guardan ${r.labs.length} resultado(s) de laboratorio${(r.txt||[]).length?' y '+r.txt.length+' informe(s) (imágenes/procedimientos)':''}</label>
    ${r.edad||r.cama?`<div class="muted" style="margin-top:6px">${r.cama?'Cama '+esc(r.cama)+' · ':''}${r.edad?esc(r.edad)+' años':''} (se usan si faltan)</div>`:''}
    <div class="row" style="margin-top:12px"><button class="btn pri" data-act="apply">Guardar como evolución del ${fmtD(IMP.fecha)}</button></div></div>`:''}`;
 }
@@ -542,12 +551,7 @@ function recBuild(){const S=REC;if(!S.fing)return toast('Pon la fecha de ingreso
     E.pend.forEach(q=>{const t=up(q.titulo);if(!h.pend.some(x=>deacc(x.t)===deacc(t)&&x.estado<2))h.pend.push({id:uid(),tipo:'LABORATORIO',t,estado:1,res:'',fres:'',created:Date.now()})})}
   S.pLab.forEach(r=>addRowLab(h,r,false));
   let last=null;const V=S.pEv;
-  if(V){const f=S.evFecha||addDays(R.fecha,-1);V.labs.forEach(r=>addRowLab(h,r,false));(V.txt||[]).forEach(t=>addTxtLab(h,t));
-    V.pend.forEach(q=>{if(!h.pend.some(x=>deacc(x.t)===deacc(q.t)))h.pend.push({id:uid(),tipo:pendType(q.t)||'OTRO',t:q.t,estado:q.estado,res:'',fres:'',created:Date.now()})});
-    const exBase={};Object.keys(EXLBL).forEach(k=>exBase[k]=exEvDef(h,k));
-    last={id:uid(),hid:h.id,dni:h.dni,fecha:f,hora:'08:00',estado:'final',imported:true,dx:V.dx.map(t=>({t,estado:'ESTABLE',a:'',p:''})),fv:{pas:'',pad:'',fc:'',fr:'',t:'',sat:'',o2:'AA'},S:V.S||'',Aest:'estable',Aevo:'estacionaria',
-      ex:Object.assign(exBase,V.ex),exChg:{},labSel:{},ind:V.ind.length?V.ind.map(x=>({id:uid(),t:x.t,fi:x.fi||''})):clone(g.ind),Aextra:'',Pextra:V.plan.join('\n'),prevId:null,texto:S.ev.trim(),created:Date.now(),updated:Date.now(),closedAt:Date.now()};
-    DB.evols[last.id]=last;if(!g.prob.trim())g.prob=V.dx.join('\n')}
+  if(V){last=importEvolInto(h,V,S.evFecha||addDays(R.fecha,-1),S.ev)}
   let e=null;if(!last||last.fecha<R.fecha){e=newEvol(h,R.fecha);DB.evols[e.id]=e}
   save();REC=null;toast('Paciente recibido'+(e?': evolución de hoy armada':''));
   if(e)go('evol',{eid:e.id,hid:h.id,tab:'cambio'});else go('hosp',{hid:h.id})}
@@ -595,49 +599,41 @@ function vIngreso(){
 }
 
 /* ---- Evolución ---- */
-const EV_TABS=[['cambio','¿Qué cambió?'],['visita','Visita'],['nota','Nota']];
+/* ---- Evolución: una sola hoja, como en el ESSI. Viene armada de la anterior; solo cambias lo nuevo ---- */
+const rowsFor=(t,min)=>Math.max(min||2,String(t||'').split('\n').reduce((n,l)=>n+Math.max(1,Math.ceil(l.length/75)),0)+1);
 function vEvol(){
-  const e=DB.evols[R.eid];if(!e){R.v='censo';return vCenso()}const h=DB.hosps[e.hid],p=P(h.dni),prev=e.prevId&&DB.evols[e.prevId];
-  const tab=R.tab||(e.estado==='borrador'?'cambio':e.estado==='visita'?'visita':'nota');
-  CUR={root:e,hid:h.id,dni:h.dni,fecha:e.fecha,preview(){e.texto=evolText(e);const el=$('#prev');if(el)el.textContent=e.texto},
+  const e=DB.evols[R.eid];if(!e){R.v='censo';return vCenso()}evNorm(e);if(e.estado==='visita')e.estado='borrador';
+  const h=DB.hosps[e.hid],p=P(h.dni),prev=e.prevId&&DB.evols[e.prevId],fin=e.estado==='final';
+  CUR={root:e,hid:h.id,dni:h.dni,fecha:e.fecha,
+    preview(){e.texto=evolText(e);const el=$('#prev');if(el)el.textContent=e.texto;const lb=$('#labprev');if(lb)lb.textContent=labBlock(e).filter(Boolean).join('\n')||'(sin resultados marcados)';
+      const hd=$('#evhd');if(hd)hd.textContent=evHeader(e).join('\n')+'\n\nPaciente'+(p.edad?' de '+p.edad+' años':'')+' con los siguientes problemas:'},
     async click(a,d){
-      if(a==='exEdit'){e.exChg[d.k]=true;rerender()}
-      else if(a==='exReset'){e.ex[d.k]=exEvDef(h,d.k);e.exChg[d.k]=true;save();rerender()}
-      else if(a==='dxAdd'){e.dx.push({t:'',estado:'ESTABLE',a:'',p:''});save();rerender()}
-      else if(a==='dxDel'){const x=e.dx[+d.i];if(x.t&&!await ask('¿Quitar “'+x.t+'”? Si se resolvió, mejor marca RESUELTO.'))return;e.dx.splice(+d.i,1);save();rerender()}
-      else if(a==='detect'){const n=detectPend(h,e.dx.map(x=>x.p).join('\n')+'\n'+e.Pextra);save();toast(n?n+' pendiente(s) agregado(s)':'Nada nuevo detectado');rerender()}
-      else if(a==='copy'){copyText(evolText(e)).then(ok=>toast(ok?'Evolución copiada':'No se pudo copiar'))}
-      else if(a==='estado'){e.estado=d.to;if(d.to==='final')e.closedAt=Date.now();e.texto=evolText(e);save();toast(d.to==='visita'?'Modo visita: ajusta plan, indicaciones y pendientes':'Evolución cerrada. Entra en el TXT del día');go('evol',{eid:e.id,hid:h.id,tab:d.to==='visita'?'visita':'nota'})}},
-    mount(){bar(`<button class="btn" onclick="go('hosp',{hid:'${h.id}'})">← Paciente</button>`+(e.estado==='borrador'?`<button class="btn pri" data-act="estado" data-to="visita" onclick="CUR.click('estado',{to:'visita'})">Pasar a visita →</button>`:
-      `<button class="btn pri" onclick="CUR.click('estado',{to:'final'})">${e.estado==='final'?'✓ Final (actualizar)':'Cerrar evolución'}</button>`))}};
-  const head=`<div class="card"><div class="pt"><div style="display:flex;align-items:center"><span class="cama">${esc(h.cama||'—')}</span><div><div class="nm">${esc(p.nombre)}</div>
-   <div class="muted">${dniTag(p.dni)} · <b>DH ${dh(h,e.fecha)}</b> · ${fmtD(e.fecha)} · ${{borrador:'Borrador',visita:'Post-visita',final:'Final'}[e.estado]}</div></div></div>
+      if(a==='copy'){copyText(evolText(e)).then(ok=>toast(ok?'Evolución copiada':'No se pudo copiar'))}
+      else if(a==='normO'){if(!await ask('¿Reemplazar el O) por el examen normal?'))return;e.O=defO(h);save();rerender()}
+      else if(a==='addPend'){e.P=addPendToPlan(h,e.P);save();rerender()}
+      else if(a==='close'){const n=syncPendFromPlan(h,e.P);e.estado='final';e.closedAt=Date.now();e.texto=evolText(e);save();toast('Evolución cerrada'+(n?' · '+n+' pendiente(s) nuevo(s)':'')+'. Entra en el TXT del día');rerender()}
+      else if(a==='reopen'){e.estado='borrador';save();rerender()}},
+    mount(){bar(`<button class="btn" onclick="go('hosp',{hid:'${h.id}'})">← Paciente</button><button class="btn" onclick="CUR.click('copy')">Copiar</button>`+(fin?`<button class="btn" onclick="CUR.click('reopen')">✓ Cerrada · reabrir</button>`:`<button class="btn pri" onclick="CUR.click('close')">Cerrar evolución</button>`));CUR.preview()}};
+  const labs=h.labs.slice().sort((a,b)=>b.fecha.localeCompare(a.fecha)).filter(l=>l.fecha<=e.fecha);
+  const faltan=pendActive(h).filter(x=>!deacc(String(e.P||'')).includes(deacc(pendLabel(x))));
+  return `<div class="card"><div class="pt"><div style="display:flex;align-items:center"><span class="cama">${esc(h.cama||'—')}</span><div><div class="nm">${esc(p.nombre)}</div>
+   <div class="muted">${dniTag(p.dni)} · <b>DH ${dh(h,e.fecha)}</b> · ${fmtD(e.fecha)} · ${fin?'Cerrada':'Borrador'}</div></div></div>
    <div style="width:120px"><label>Hora</label><input type="time" data-p="hora" value="${esc(e.hora)}"></div></div>
    ${prev&&prev.texto?`<details style="margin-top:10px"><summary>Evolución anterior (${fmtD(prev.fecha)})</summary><pre class="note">${esc(prev.texto)}</pre></details>`:''}</div>
-   <div class="tabs">${EV_TABS.map(([k,l])=>`<button class="${tab===k?'on':''}" data-act="tab" data-tab="${k}">${l}</button>`).join('')}</div>`;
-  let body='';
-  if(tab==='cambio'){const labs=h.labs.slice().sort((a,b)=>b.fecha.localeCompare(a.fecha)).filter(l=>l.fecha<=e.fecha);
-    body=`<div class="card"><h3>Funciones vitales de hoy</h3>${fvFields('fv')}</div>
-    <div class="card"><h3>S · Subjetivo</h3><textarea data-p="S" rows="3" placeholder="Vacío = “Paciente sin molestias nuevas.”">${esc(e.S)}</textarea></div>
-    <div class="card"><h3>O · Examen físico</h3><p class="muted" style="margin-top:0">Viene de ayer. Toca “Cambió” solo en lo que sea distinto.</p>
-     ${Object.keys(EXLBL).map(k=>`<div class="exrow ${e.exChg[k]?'chg':''}"><div class="hd"><b style="font-size:14px">${EXLBL[k]}</b><div class="row">${e.exChg[k]?`<button class="link" data-act="exReset" data-k="${k}">↺ Normal</button>`:`<button class="btn sm" data-act="exEdit" data-k="${k}">Cambió</button>`}</div></div>
-      ${e.exChg[k]?`<textarea data-p="ex.${k}" rows="2">${esc(e.ex[k]||'')}</textarea>`:`<div class="tx">${esc(e.ex[k]||'—')}</div>`}</div>`).join('')}</div>
-    <div class="card"><h3>Exámenes auxiliares</h3><p class="muted" style="margin-top:0">Marcados = entran en la nota (por defecto, todos los de la hospitalización, como en el modelo). Desmarca lo que ya no quieras arrastrar.</p>
-     ${labs.map(l=>`<label class="chkl"><input type="checkbox" data-labsel="${l.id}" ${labSelected(e,l)?'checked':''}><span><b>${fmtD(l.fecha)} · ${AREAS[l.area]}</b><br><span class="muted">${esc(sortItems(l.items).map(itemTxt).join(', '))}</span></span></label>`).join('')||'<div class="muted">Sin resultados.</div>'}
-     <button class="btn pri" style="margin-top:10px" onclick="go('labs',{hid:'${h.id}',back:'evol'})">Importar análisis</button></div>`}
-  if(tab==='visita')body=`<div class="card"><h3>Problemas · A y P</h3>${e.dx.map((x,i)=>`<div class="dx"><div class="hd"><span class="num">${i+1}.</span><input data-p="dx.${i}.t" value="${esc(x.t)}" placeholder="Problema" autocomplete="off"><button class="btn sm bad" data-act="dxDel" data-i="${i}">✕</button></div>
-     <div class="grid w2" style="margin-top:8px"><div><label>Estado</label><select data-p="dx.${i}.estado">${DXEST.map(s=>`<option ${x.estado===s?'selected':''}>${s}</option>`).join('')}</select></div>${F('dx.'+i+'.a','Comentario para A) (opcional)')}</div>
-     <div style="margin-top:8px">${F('dx.'+i+'.p','Plan para este problema (opcional)')}</div></div>`).join('')}
-     <button class="btn sm" data-act="dxAdd">+ Agregar problema</button>
-     <h4>A)</h4><div class="grid w2"><div><label>Paciente…</label><select data-p="Aest">${AEST.map(x=>`<option ${(e.Aest||'estable')===x?'selected':''}>${x}</option>`).join('')}</select></div>
-      <div><label>…con evolución clínica</label><select data-p="Aevo">${AEVO.map(x=>`<option ${(e.Aevo||'estacionaria')===x?'selected':''}>${x}</option>`).join('')}</select></div></div>
-     <div style="margin-top:8px">${TA('Aextra','Lo que sigue (qué pasó, qué se espera, por qué)',3,'Ej.: Lesiones impresionan haber disminuido levemente. Hoy tiene programada colonoscopía.')}</div>
-     <div style="margin-top:8px">${TA('Pextra','P) Plan (una línea por ítem; los pendientes activos se agregan solos)',4,'Hoy colonoscopía.\nSS Eco mamaria.\nInicia MTX 15 mg VO.')}</div>
-     <div class="row" style="margin-top:8px"><button class="btn sm" data-act="detect">Detectar pendientes en el plan</button></div></div>
-    <div class="card"><h3>Indicaciones</h3><p class="muted" style="margin-top:0">La fecha es el inicio: la nota muestra el día de tratamiento (D3).</p>${indEditor('ind')}</div>
-    <div class="card"><h3>Pendientes del paciente</h3>${pendEditor(h)}</div>`;
-  if(tab==='nota')body=`<div class="card"><h3>Evolución</h3><pre class="note" id="prev"></pre><div class="row" style="margin-top:10px"><button class="btn pri" data-act="copy">Copiar</button><span class="sp"></span><button class="btn bad sm" onclick="delEvol('${e.id}')">Eliminar evolución</button></div></div>`;
-  return head+body;
+  <div class="card ev"><p class="muted" style="margin-top:0">Viene armada de la evolución anterior. Cambia solo lo nuevo; abajo ves la nota completa.</p>
+   <pre class="note" id="evhd" style="margin:0 0 6px"></pre>
+   <textarea data-p="probT" rows="${rowsFor(e.probT,3)}" placeholder="Un problema por línea (empieza con -- para subproblema)">${esc(e.probT)}</textarea>
+   <label style="margin-top:12px">S)</label><textarea data-p="S" rows="2" placeholder="Paciente sin molestias nuevas.">${esc(e.S)}</textarea>
+   <div class="pt" style="margin-top:12px"><label style="margin:0">O)</label><button class="link" data-act="normO">↺ Examen normal</button></div><textarea data-p="O" rows="${rowsFor(e.O,6)}">${esc(e.O)}</textarea>
+   <div class="pt" style="margin-top:12px"><label style="margin:0">LAB · Imágenes · Procedimientos <span class="muted">(automático, de los PDF/labs)</span></label><button class="btn sm" onclick="go('labs',{hid:'${h.id}',back:'evol'})">+ Análisis</button></div>
+   <pre class="note" id="labprev" style="margin:6px 0 0"></pre>
+   ${labs.length?`<details style="margin-top:6px"><summary>Elegir qué resultados van (${labs.length})</summary>${labs.map(l=>`<label class="chkl"><input type="checkbox" data-labsel="${l.id}" ${labSelected(e,l)?'checked':''}><span><b>${fmtD(l.fecha)} · ${AREAS[l.area]}</b><br><span class="muted">${esc(sortItems(l.items).map(it=>/^TXT_/.test(it.k)?it.n:itemTxt(it)).join(', ').slice(0,180))}</span></span></label>`).join('')}</details>`:''}
+   <label style="margin-top:12px">A)</label><textarea data-p="A" rows="${rowsFor(e.A,3)}">${esc(e.A)}</textarea>
+   <label style="margin-top:12px">P) <span class="muted">— una línea por ítem; “Pendiente …”, “SS …” e “IC …” pasan a Pendientes al cerrar</span></label><textarea data-p="P" rows="${rowsFor(e.P,4)}">${esc(e.P)}</textarea>
+   ${faltan.length?`<div class="row" style="margin-top:6px"><span class="muted">${faltan.length} pendiente(s) activos no están en el P): ${esc(faltan.map(pendLabel).join('; '))}</span><button class="btn sm" data-act="addPend">Agregar al P)</button></div>`:''}</div>
+  <div class="card"><h3>Nota completa</h3><pre class="note" id="prev"></pre><div class="row" style="margin-top:10px"><button class="btn pri" data-act="copy">Copiar</button><span class="sp"></span><button class="btn bad sm" onclick="delEvol('${e.id}')">Eliminar evolución</button></div></div>
+  <div class="card"><details><summary><b>Pendientes del paciente</b> (${pendActive(h).length} activos)</summary><div style="margin-top:10px">${pendEditor(h)}</div></details></div>
+  <div class="card"><details><summary><b>Indicaciones</b> (opcional: sirven para el alta)</summary><div style="margin-top:10px">${indEditor('ind')}</div></details></div>`;
 }
 async function delEvol(id){const e=DB.evols[id];if(!await ask('¿Eliminar la evolución del '+fmtD(e.fecha)+'?'))return;Object.values(DB.evols).forEach(x=>{if(x.prevId===id)x.prevId=e.prevId});delete DB.evols[id];save();go('hosp',{hid:e.hid});toast('Evolución eliminada')}
 
@@ -685,7 +681,7 @@ function resolvePendImg(h,t){if(!t.img)return;const mod=s=>/\b(TEM|TAC|TOMOGRAF)
   const pd=h.pend.find(x=>x.estado<2&&(x.tipo==='IMAGEN'||mod(deacc(x.t)))&&mod(deacc(x.t))===m&&words.some(w=>deacc(x.t).includes(w.slice(0,5))));
   if(pd){pd.estado=2;pd.res=up((t.concl||t.texto).slice(0,400));pd.fres=t.fecha;pd.updated=Date.now()}}
 function curDni(){if(R.v==='recibir'&&REC)return /^\d{8}$/.test(REC.dni||'')?REC.dni:'';const h=R.hid&&DB.hosps[R.hid];return h&&/^\d{8}$/.test(h.dni)?h.dni:''}
-function onEssi(r,ne){if(R.v==='recibir'&&REC){const q=REC.essi;REC.essi=q?{rows:q.rows.concat(r.rows),texts:q.texts.concat(r.texts),pend:q.pend.concat(r.pend),unk:q.unk.concat(r.unk),dnis:[...new Set((q.dnis||[]).concat(r.dnis||[]))],nombre:q.nombre||r.nombre,sexo:q.sexo||r.sexo,edad:q.edad||r.edad,fing:[q.fing,r.fing].filter(Boolean).sort()[0]||''}:r;recParse();rerender();toast(essiMsg(r,ne).replace(' Revisa y guarda.',''));return}
+function onEssi(r,ne){if(R.v==='recibir'&&REC&&TXT_TARGET==='lab'||R.v==='recibir'&&REC&&!['ing','ev'].includes(TXT_TARGET)){const q=REC.essi;REC.essi=q?{rows:q.rows.concat(r.rows),texts:q.texts.concat(r.texts),pend:q.pend.concat(r.pend),unk:q.unk.concat(r.unk),dnis:[...new Set((q.dnis||[]).concat(r.dnis||[]))],nombre:q.nombre||r.nombre,sexo:q.sexo||r.sexo,edad:q.edad||r.edad,fing:[q.fing,r.fing].filter(Boolean).sort()[0]||''}:r;recParse();rerender();toast(essiMsg(r,ne).replace(' Revisa y guarda.',''));return}
   {const h=R.hid&&DB.hosps[R.hid];if(h&&isTmp(h.dni)&&r.dnis&&r.dnis.length===1&&assignDni(h.id,r.dnis[0],{nombre:r.nombre,sexo:r.sexo,edad:r.edad}))setTimeout(()=>toast('DNI y nombre tomados del ESSI'),2600)}
   if(R.v==='importEv'){toast('Ese PDF es de laboratorio: súbelo en Labs del paciente');return}const S=LABSTATE;
   S.rows=sortRev((S.rows||[]).concat(r.rows.map(x=>({...x,on:true}))));S.texts=(S.texts||[]).concat(r.texts.map(t=>({...t,on:true})));S.pend=(S.pend||[]).concat(r.pend.map(p=>({...p,on:true})));S.unk=(S.unk||[]).concat(r.unk);
@@ -705,8 +701,9 @@ async function ocrFiles(files){if(!files.length)return;try{setBusy('Preparando l
 async function pdfFiles(files){if(!files.length)return;try{setBusy('Abriendo PDF…',0.05);await loadScript('lib/pdf.min.js');pdfjsLib.GlobalWorkerOptions.workerSrc=absURL('lib/pdf.worker.min.js');
   const ess=[];let n=0;
   for(const f of files){n++;setBusy('Leyendo '+f.name+' ('+n+'/'+files.length+')…',n/files.length);const {rows}=await pdfRows(f);
-    if(essiDetect(rows)){ess.push(essiParse(rows));continue}
-    if(rows.length>=5){appendText(rows.map(r=>r.map(i=>i.s).join(' ')).join('\n'));continue}
+    const wantText=R.v==='importEv'||(R.v==='recibir'&&['ing','ev'].includes(TXT_TARGET));
+    if(!wantText&&essiDetect(rows)){const r=essiParse(rows);if(r.rows.length||r.texts.length||r.pend.length){ess.push(r);continue}}
+    if(rows.length>=5){appendText(rows.map(r=>r.map(i=>i.s).join(' ')).filter(t=>!ESSI_NOISE.test(t)).join('\n'));continue}
     await pdfOCR(f)}
   setBusy('',0);if(ess.length){const dni=curDni();const ok=ess.filter(r=>!dni||!r.dni||r.dni===dni),bad=ess.length-ok.length;
     if(bad)setTimeout(()=>toast('⚠️ '+bad+' PDF de OTRO paciente (DNI distinto) no se importaron'),2600);if(ok.length)onEssi(combineEssi(ok),ok.length);else toast('⚠️ Ninguno de esos PDF es de este paciente (DNI distinto)')}else toast('PDF leído. Revisa y toca Procesar')}catch(e){setBusy('',0);toast('No se pudo leer el PDF: '+e.message)}}
@@ -798,7 +795,7 @@ function vAjustes(){const s=DB.settings;CUR={root:s,click(a){
   <div class="card"><h3>Respaldo</h3><p class="muted" style="margin-top:0">Todo vive solo en este iPad. Último respaldo: ${s.lastBackup?new Date(s.lastBackup).toLocaleString('es-PE'):'nunca'} · ${(bytes/1024).toFixed(0)} KB</p>
    <div class="row"><button class="btn pri" onclick="exportBackup()">Exportar respaldo</button><label class="btn" style="margin:0;color:var(--ink);font-size:16px">Importar respaldo<input type="file" accept=".json,application/json" style="display:none" onchange="importBackup(this.files[0])"></label></div></div>
   <div class="card"><h3>Zona de riesgo</h3><button class="btn bad" onclick="wipe()">Borrar todos los datos</button></div>
-  <p class="muted">Evol Reuma v2.0 · Lector de fotos: Tesseract.js · Lector de PDF: pdf.js (ambos funcionan sin internet una vez usados). Las plantillas son editables: valídalas con el servicio.</p>`}
+  <p class="muted">Evol Reuma v2.1 · Lector de fotos: Tesseract.js · Lector de PDF: pdf.js (ambos funcionan sin internet una vez usados). Las plantillas son editables: valídalas con el servicio.</p>`}
 async function wipe(){if(!await ask('¿Borrar TODOS los datos de Evol Reuma en este iPad?')||!await ask('Confirma de nuevo: no se puede deshacer.'))return;const s=DB.settings;DB=blank();DB.settings=Object.assign(s,{lastBackup:null});save();go('censo')}
 
 /* =====================================================================
@@ -817,7 +814,8 @@ function resumenAlta(h){const a=h.alta,p=P(h.dni),S=[];const sx=p.sexo==='F'?'MU
   if(ev.length)S.push('RECIBE '+ev.map(c=>c.t+' '+rango(c)).join('; ')+'.');
   const ic=h.pend.filter(x=>x.tipo==='IC'&&x.estado===2);if(ic.length)S.push(ic.map(x=>'ES EVALUADO POR '+up(pendLabel(x).replace(/^IC\s*/i,''))+(x.res?', QUIEN INDICA '+up(x.res).replace(/\.$/,''):'')).join('. ')+'.');
   const pr=h.pend.filter(x=>x.tipo==='PROCEDIMIENTO'&&x.estado===2);if(pr.length)S.push(pr.map(x=>'SE REALIZA '+up(x.t)+(x.fres?' EL DÍA '+dd(x.fres):'')+(x.res?': '+up(x.res).replace(/\.$/,''):'')).join('. ')+'.');
-  S.push('PACIENTE '+up(le&&le.Aest||'estable')+', CON EVOLUCIÓN CLÍNICA '+up(le&&le.Aevo&&le.Aevo!=='estacionaria'?le.Aevo:'favorable')+', SE INDICA SU ALTA MÉDICA'+(a.control.trim()?' CON '+up(a.control).replace(/\.$/,''):'')+'.');
+  const am=le?(String(evNorm(le).A||'').match(/^Paciente ([^,.]+),[^.]*?evoluci[oó]n cl[ií]nica ([^,.]+)/i)||[]):[];
+  S.push('PACIENTE '+up(am[1]||'estable')+', CON EVOLUCIÓN CLÍNICA '+up(am[2]&&!/estacionaria/i.test(am[2])?am[2]:'favorable')+', SE INDICA SU ALTA MÉDICA'+(a.control.trim()?' CON '+up(a.control).replace(/\.$/,''):'')+'.');
   pendActive(h).forEach(x=>S.push('PENDIENTE '+up(pendLabel(x))+'.'));
   return S.join(' ').replace(/\s+\./g,'.')}
 function antAlta(h){const A=h.ing.ant,L=['ANTECEDENTES :'];L.push('ENFERMEDADES: '+(A.patol.trim()?A.patol.trim():'NIEGA.'));if(A.quir.trim())L.push('QUIRÚRGICOS: '+A.quir.trim());if(A.hosp.trim())L.push('HOSPITALIZACIONES: '+A.hosp.trim());
