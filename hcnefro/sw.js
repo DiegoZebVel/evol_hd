@@ -1,5 +1,5 @@
 // HC Nefro — service worker. Sube la versión al actualizar la app.
-const PREFIX='hc-nefro-',CACHE=PREFIX+'v3';
+const PREFIX='hc-nefro-',CACHE=PREFIX+'v7';
 const SHELL=['./','./index.html','./app.js','./labs.js','./hcimport.js','./manifest.webmanifest','./icon-180.png','./icon-192.png','./icon-512.png'];
 const LIB=['./lib/jszip.min.js','./lib/pdf.min.js','./lib/pdf.worker.min.js','./lib/tesseract.min.js','./lib/worker.min.js','./lib/core/tesseract-core-simd-lstm.wasm.js','./lib/core/tesseract-core-lstm.wasm.js','./lib/lang/spa.traineddata.gz'];
 self.addEventListener('install',e=>{e.waitUntil(caches.open(CACHE).then(c=>c.addAll(SHELL).then(()=>{c.addAll(LIB).catch(()=>{})})).then(()=>self.skipWaiting()))});
