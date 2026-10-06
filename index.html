@@ -61,6 +61,11 @@ input:focus,select:focus,textarea:focus{outline:2px solid var(--pri);outline-off
 .seg{display:inline-flex;border:1px solid var(--line);border-radius:10px;overflow:hidden}
 .seg button{font:inherit;border:0;background:var(--card);color:var(--ink);padding:10px 16px;min-height:44px}
 .seg button.on{background:var(--pri);color:var(--pri-ink)}
+.req>label:first-child::after,.req>div:first-child>label::after{content:' *';color:var(--bad,#b42318)}
+.miss input,.miss select,.miss .seg{outline:2px solid var(--bad,#b42318);outline-offset:1px}
+.modal{position:fixed;inset:0;background:rgba(0,0,0,.45);display:flex;align-items:center;justify-content:center;z-index:99;padding:16px}
+.mbox{background:var(--card);color:var(--ink);border-radius:14px;padding:18px;max-width:440px;width:100%;box-shadow:0 10px 40px rgba(0,0,0,.3)}
+.mbox p{margin:0 0 14px;white-space:pre-line}
 .muted{color:var(--muted);font-size:14px}
 .badge{display:inline-block;font-size:12px;border-radius:999px;padding:3px 9px;font-weight:600}
 .b-pend{background:var(--warn-soft);color:var(--warn)}
@@ -125,6 +130,12 @@ function cap(s){return s?s.charAt(0).toUpperCase()+s.slice(1):s}
 function joinEs(a){a=a.filter(Boolean);if(a.length<2)return a.join('');return a.slice(0,-1).join(', ')+' y '+a[a.length-1]}
 function dot(s){s=(s||'').trim();return !s?'':/[.!?:]$/.test(s)?s:s+'.'}
 function toast(m){const t=$('#toast');t.textContent=m;t.classList.add('show');clearTimeout(t._h);t._h=setTimeout(()=>t.classList.remove('show'),2000)}
+function ask(msg,ok='Sí, continuar'){return new Promise(res=>{const o=document.createElement('div');o.className='modal';
+  o.innerHTML=`<div class="mbox"><p>${esc(msg)}</p><div class="row" style="justify-content:flex-end"><button class="btn" data-r="0">Cancelar</button><button class="btn pri" data-r="1">${esc(ok)}</button></div></div>`;
+  o.onclick=e=>{const b=e.target.closest('[data-r]');if(!b)return;o.remove();res(b.dataset.r==='1')};document.body.appendChild(o)})}
+// Pacientes sin DNI: se guardan con una clave interna "SD-…" y se muestran como "sin DNI"
+const isSD=k=>/^SD-/.test(String(k||''));
+const dniTxt=k=>isSD(k)?'sin DNI':'DNI '+k;
 function getP(o,p){return p.split('.').reduce((a,k)=>a==null?a:a[k],o)}
 function setP(o,p,v){const ks=p.split('.');let a=o;ks.slice(0,-1).forEach(k=>{a[k]=a[k]??{};a=a[k]});a[ks[ks.length-1]]=v}
 
@@ -135,7 +146,9 @@ const ACC_EX={
   FAV:['Thrill y soplo presentes','Thrill disminuido','Soplo ausente','Sin signos de infección','Signos de infección','Hematoma'],
   CVC:['Orificio sin signos de infección','Eritema en orificio','Secreción en orificio','Flujo adecuado','Flujo inadecuado']
 };
-const EXAMEN=['Despierto, LOTEP','MV pasa bien en ACP, sin ruidos agregados','Crépitos basales','RCR, no soplos','Ingurgitación yugular','Edema de MMII','Palidez'];
+const EXAMEN=['Despierto, LOTEP','MV pasa bien en ACP, sin ruidos agregados','Crépitos basales','RCR, no soplos','Ingurgitación yugular','Palidez'];
+const FILTROS=['1.3','1.5','1.6','1.8','1.9','2.1'];
+const EDEMA_G=['+','++','+++'];
 const INTER=[
  {k:'hipo',l:'Hipotensión',o:'hipotensión',a:'Hipotensión intradiálisis.',p:'Reducir/suspender UF, posición de Trendelenburg, NaCl 0.9% 100–200 mL EV según respuesta. Reevaluar peso seco.'},
  {k:'calam',l:'Calambres',o:'calambres musculares',a:'Calambres musculares intradiálisis.',p:'Reducir UF, NaCl 0.9% EV en bolo según respuesta. Reevaluar peso seco.'},
@@ -168,7 +181,7 @@ function newSession(dni,fecha){
   const p=DB.patients[dni]||{};
   return {id:uid(),dni,fecha,hora:nowHM(),estado:'pendiente',created:Date.now(),updated:Date.now(),
     S:{sint:[],diuresis:'',libre:''},
-    O:{pas:'',pad:'',fc:'',peso:'',ps:p.ps||'',uf:'',qb:p.qb||'',qd:p.qd||'',acceso:p.acceso||'FAV',accesoDet:p.accesoDet||'',accesoEx:[],examen:[],examenLibre:''},
+    O:{pas:'',pad:'',fc:'',peso:'',ps:p.ps||'',uf:'',qb:p.qb||'',qd:p.qd||'',na:p.na||'',filtro:p.filtro||'',edema:'',edemaG:'',edemaLoc:'',acceso:p.acceso||'',accesoDet:p.accesoDet||'',accesoEx:[],examen:[],examenLibre:''},
     inter:{}, labs:{fecha:'',libre:''}, A:'',P:'',Aedit:false,Pedit:false,texto:''};
 }
 function gid(s){const pe=num(s.O.peso),ps=num(s.O.ps);if(pe==null||ps==null||ps<=0)return null;const g=pe-ps;return{g,pct:g/ps*100}}
@@ -181,27 +194,30 @@ function textS(s){
   if(s.S.diuresis)t+=' '+s.S.diuresis+'.';
   return t;
 }
+function edemaTxt(o){if(o.edema==='no')return 'Sin edemas.';if(o.edema==='si')return 'Edema'+(o.edemaLoc.trim()?' '+o.edemaLoc.trim():' de MMII')+(o.edemaG?' '+o.edemaG:'')+'.';return''}
+// Lo obligatorio va siempre: PA, FC, UF, edemas, filtro y acceso. Lo demás (Qb, Qd, Na, pesos) solo si se registra.
 function textO(s){
   const o=s.O,L=[];let l1=[];
   if(o.pas||o.pad)l1.push('PA '+(o.pas||'?')+'/'+(o.pad||'?')+' mmHg');
   if(o.fc)l1.push('FC '+o.fc+' lpm');
-  let line=l1.length?l1.join(', ')+'.':'';
-  if(o.peso){const g=gid(s);line+=(line?' ':'')+'Peso ingreso '+o.peso+' kg'+(o.ps?' (PS '+o.ps+' kg'+(g?'; GID '+fx(g.g)+' kg, '+fx(g.pct)+'% del PS':'')+')':'')+'.'}
-  else if(o.ps)line+=(line?' ':'')+'PS '+o.ps+' kg.';
-  if(o.uf)line+=(line?' ':'')+'UF programada '+o.uf+' L.';
-  const f=[];if(o.qb)f.push('Qb '+o.qb+' mL/min');if(o.qd)f.push('Qd '+o.qd+' mL/min');
-  if(f.length)line+=(line?' ':'')+f.join(', ')+'.';
-  if(line)L.push(line);
-  let acc=o.acceso+(o.accesoDet.trim()?' '+o.accesoDet.trim():'');
-  if(o.accesoEx.length)acc+=': '+o.accesoEx.map((x,i)=>i?lc(x):lc(x)).join(', ');
-  L.push(dot(acc));
+  if(o.uf)l1.push('UF '+o.uf+' L');
+  if(l1.length)L.push(l1.join(', ')+'.');
+  let acc=(o.acceso==='FAV'?'FAV':o.acceso==='CVC'?'CVC':'Acceso')+(o.accesoDet.trim()?' '+o.accesoDet.trim():'');
+  if(o.accesoEx.length)acc+=': '+o.accesoEx.map(x=>lc(x)).join(', ');
+  let l2=dot(acc);if(o.filtro)l2+=' Filtro '+o.filtro+(/^\d+([.,]\d+)?$/.test(o.filtro)?' m²':'')+'.';const ed=edemaTxt(o);if(ed)l2+=' '+ed;
+  L.push(l2);
+  const x=[];
+  if(o.peso){const g=gid(s);x.push('Peso ingreso '+o.peso+' kg'+(o.ps?' (PS '+o.ps+' kg'+(g?'; GID '+fx(g.g)+' kg, '+fx(g.pct)+'% del PS':'')+')':''))}else if(o.ps)x.push('PS '+o.ps+' kg');
+  if(o.qb)x.push('Qb '+o.qb+' mL/min');if(o.qd)x.push('Qd '+o.qd+' mL/min');if(o.na)x.push('Na '+o.na+' mEq/L');
+  if(x.length)L.push(x.join(', ')+'.');
   const ex=o.examen.slice();if(o.examenLibre.trim())ex.push(o.examenLibre.trim());
   if(ex.length)L.push(dot(ex.map((x,i)=>i?lc(x):x).join('. ').replace(/\.\./g,'.')));
   const lb=labText(s);if(lb)L.push(lb);
   const it=interList(s);
-  if(it.length)L.push('Intradiálisis: '+it.map(x=>x.def.k==='otra'?(x.det||'otra intercurrencia'):x.def.o+(x.det?' ('+x.det+')':'')).join('; ')+'.');
+  L.push(it.length?'Intradiálisis: '+it.map(x=>x.def.k==='otra'?(x.det||'otra intercurrencia'):x.def.o+(x.det?' ('+x.det+')':'')).join('; ')+'.':'Sin intercurrencias intradiálisis.');
   return L.join('\n');
 }
+function missingReq(s){const o=s.O,m=[];if(!o.pas||!o.pad)m.push('PA');if(!o.fc)m.push('FC');if(!o.uf)m.push('UF');if(!o.edema)m.push('edemas');if(!o.filtro)m.push('filtro');if(!o.acceso)m.push('FAV/CVC');return m}
 function labText(s){
   const v=[];LABS.forEach(d=>{const x=s.labs[d[0]];if(x!==undefined&&String(x).trim()!=='')v.push(d[1]+' '+String(x).trim()+(d[2]?' '+d[2]:''))});
   const lib=(s.labs.libre||'').trim();
@@ -216,13 +232,13 @@ function autoAP(s){
   const paHi=(pas!=null&&pas>=160)||(pad_!=null&&pad_>=100), paLo=pas!=null&&pas<100;
   const fcBad=fc!=null&&(fc>100||fc<50);
   const stable=pas!=null&&!paHi&&!paLo&&!fcBad&&!it.length;
-  A.push('Paciente en HD crónica vía '+o.acceso+(stable?', hemodinámicamente estable':'')+'.');
+  A.push('Paciente en HD crónica'+(o.acceso?' vía '+o.acceso:'')+(stable?', hemodinámicamente estable':'')+'.');
   if(paHi){A.push('PA predialítica elevada ('+o.pas+'/'+o.pad+' mmHg).');P.push('Optimizar UF y control de PA intradiálisis; revisar tratamiento antihipertensivo.')}
   if(paLo){A.push('PA predialítica baja ('+o.pas+'/'+o.pad+' mmHg).');P.push('UF cautelosa; control de PA cada 30 min. Reevaluar peso seco.')}
   if(fc!=null&&fc>100)A.push('Taquicardia ('+fc+' lpm).');
   if(fc!=null&&fc<50)A.push('Bradicardia ('+fc+' lpm).');
   if(g&&g.pct>4){A.push('Ganancia interdialítica elevada ('+fx(g.g)+' kg, '+fx(g.pct)+'% del PS).');P.push('Reforzar restricción hídrica y de sodio.')}
-  const sobre=o.examen.some(x=>/Crépitos|Ingurgitación|Edema/.test(x))||s.S.sint.includes('Disnea');
+  const sobre=o.examen.some(x=>/Crépitos|Ingurgitación/.test(x))||o.edema==='si'||s.S.sint.includes('Disnea');
   if(sobre){A.push('Signos de sobrecarga hídrica.');P.push('Optimizar UF según tolerancia; reevaluar peso seco.')}
   if(o.accesoEx.some(x=>/Signos de infección|Eritema|Secreción/.test(x))){A.push('Signos de infección del acceso vascular.');P.push('Cultivo de secreción/hemocultivos; antibioticoterapia según protocolo del servicio.')}
   if(o.accesoEx.includes('Flujo inadecuado')||o.accesoEx.includes('Thrill disminuido')||o.accesoEx.includes('Soplo ausente')){
@@ -233,7 +249,7 @@ function autoAP(s){
     if(d[0]==='K'&&num(s.labs.K)>=6.5)P.push('Manejo de hiperpotasemia severa según protocolo; monitoreo ECG.');
   });
   it.forEach(x=>{if(x.def.k==='otra'){if(x.det)A.push('Intercurrencia: '+dot(x.det))}else{A.push(x.def.a);P.push(x.def.p)}});
-  if(A.length===1&&stable)A.push('Sin intercurrencias.');
+
   const base=(DB.settings.planBase||'').split('\n').map(x=>x.replace(/^\s*\d+[.)-]\s*/,'').trim()).filter(Boolean);
   const plan=[...base];P.forEach(x=>{if(x&&!plan.includes(x))plan.push(x)});
   return {A:A.map(x=>'- '+x).join('\n'),P:plan.map((x,i)=>(i+1)+'. '+x).join('\n')};
@@ -273,14 +289,14 @@ function vGuardia(){
   <button class="btn" ${ss.length?'':'disabled'} onclick="exportGuardia('txt')">Exportar TXT</button></div>
   ${ss.length>MAX?`<div class="alert a-warn">Tienes más de ${MAX} pacientes en esta guardia.</div>`:''}
   ${ss.length?ss.map(s=>{const p=DB.patients[s.dni]||{nombre:'(sin ficha)',dni:s.dni};return `<div class="card"><div class="pt">
-   <div><div class="nm">${esc(p.nombre)}</div><div class="muted">DNI ${esc(p.dni)} · ${esc(s.hora)} · ${esc(s.O.acceso)}</div></div><div>${BADGE[s.estado]}</div></div>
+   <div><div class="nm">${esc(p.nombre)}</div><div class="muted">${dniTxt(p.dni)} · ${esc(s.hora)}${s.O.acceso?' · '+esc(s.O.acceso):''}</div></div><div>${BADGE[s.estado]}</div></div>
    <div class="row" style="margin-top:10px"><button class="btn pri sm" onclick="go('sesion',{sid:'${s.id}'})">${s.estado==='pendiente'?'Evolucionar':'Editar'}</button>
    <button class="btn sm" ${s.texto?'':'disabled'} onclick="copySession('${s.id}')">Copiar</button>
    <button class="btn sm" onclick="go('paciente',{dni:'${esc(s.dni)}'})">Historial</button><span class="sp"></span>
    <button class="btn bad sm" onclick="delSession('${s.id}')">Quitar</button></div></div>`}).join('')
    :'<div class="card muted">No hay pacientes en esta guardia. Toca “Agregar paciente”.</div>'}`;
 }
-function delSession(id){const s=DB.sessions[id];const p=DB.patients[s.dni];if(!confirm('¿Eliminar la evolución de '+(p?p.nombre:s.dni)+' del '+fmtD(s.fecha)+'? La ficha del paciente se conserva.'))return;delete DB.sessions[id];save();render();toast('Evolución eliminada')}
+async function delSession(id){const s=DB.sessions[id];const p=DB.patients[s.dni];if(!await ask('¿Eliminar la evolución de '+(p?p.nombre:s.dni)+' del '+fmtD(s.fecha)+'? La ficha del paciente se conserva.'))return;delete DB.sessions[id];save();render();toast('Evolución eliminada')}
 async function copyText(t){try{await navigator.clipboard.writeText(t);return true}catch(e){const ta=document.createElement('textarea');ta.value=t;ta.style.position='fixed';ta.style.opacity='0';document.body.appendChild(ta);ta.select();let ok=false;try{ok=document.execCommand('copy')}catch(_){}ta.remove();return ok}}
 async function copySession(id){const s=DB.sessions[id];if(await copyText(s.texto)){s.estado='copiado';s.updated=Date.now();save();if(R.v==='guardia')render();toast('Copiado. Pégalo en ESSI')}else toast('No se pudo copiar')}
 
@@ -288,27 +304,29 @@ async function copySession(id){const s=DB.sessions[id];if(await copyText(s.texto
 function vAgregar(){
   const q=R.q.trim(),ql=q.toLowerCase();
   const ps=Object.values(DB.patients);
-  const res=q?ps.filter(p=>p.dni.includes(q)||p.nombre.toLowerCase().includes(ql)).slice(0,20):[];
+  const res=q?ps.filter(p=>(!isSD(p.dni)&&p.dni.includes(q))||p.nombre.toLowerCase().includes(ql)).slice(0,20):[];
   const exact=DB.patients[q];
   const isDoc=/^[0-9A-Za-z]{6,12}$/.test(q)&&/\d/.test(q);
   return `<div class="card"><h2>Agregar a la guardia del ${fmtD(R.fecha)}</h2><label>Buscar por DNI o nombre</label>
   <input id="q" value="${esc(R.q)}" inputmode="search" autocomplete="off" oninput="R.q=this.value;render()"></div>
   ${res.map(p=>{const h=sessionsOf(p.dni),last=h[0],inter=[...new Set(h.flatMap(s=>interList(s).map(x=>x.def.l)))];
-   return `<div class="card"><div class="alert a-info" style="margin-bottom:10px">Ya lo registraste: ${h.length} evolución(es)${last?', la última el '+fmtD(last.fecha):''}. Se precargarán su acceso, peso seco, Qb y Qd.${inter.length?'<br>Intercurrencias previas: '+esc(inter.join(', '))+'.':''}</div>
-   <div class="pt"><div><div class="nm">${esc(p.nombre)}</div><div class="muted">DNI ${esc(p.dni)} · ${esc(p.acceso||'')} ${esc(p.accesoDet||'')}${p.ps?' · PS '+esc(p.ps)+' kg':''}</div></div>
+   return `<div class="card"><div class="alert a-info" style="margin-bottom:10px">Ya lo registraste: ${h.length} evolución(es)${last?', la última el '+fmtD(last.fecha):''}. Se precargarán su acceso y filtro.${inter.length?'<br>Intercurrencias previas: '+esc(inter.join(', '))+'.':''}</div>
+   <div class="pt"><div><div class="nm">${esc(p.nombre)}</div><div class="muted">${dniTxt(p.dni)} · ${esc(p.acceso||'')} ${esc(p.accesoDet||'')}${p.filtro?' · filtro '+esc(p.filtro):''}</div></div>
    <button class="btn pri" onclick="startSession('${esc(p.dni)}')">Evolucionar</button></div></div>`}).join('')}
   ${!exact?`<div class="card"><h2>Paciente nuevo</h2><div class="grid w2">
-   <div><label>DNI / CE</label><input id="nDni" value="${isDoc?esc(q):''}" inputmode="numeric" autocomplete="off"></div>
-   <div><label>Nombre completo</label><input id="nNom" value="${!isDoc?esc(q):''}" autocomplete="off" autocapitalize="words"></div></div>
+   <div><label>Nombre completo *</label><input id="nNom" value="${!isDoc?esc(q):''}" autocomplete="off" autocapitalize="words"></div>
+   <div><label>DNI / CE (opcional)</label><input id="nDni" value="${isDoc?esc(q):''}" inputmode="numeric" autocomplete="off" placeholder="si no lo tienes, déjalo vacío"></div></div>
    <div class="row" style="margin-top:12px"><button class="btn pri" onclick="createPatient()">Registrar y evolucionar</button><button class="btn" onclick="go('guardia')">Cancelar</button></div></div>`:''}`;
 }
 function createPatient(){
   const dni=$('#nDni').value.trim().replace(/\s/g,''),nom=$('#nNom').value.trim().replace(/\s+/g,' ');
-  if(!/^[0-9A-Za-z]{6,12}$/.test(dni))return toast('Ingresa un DNI/CE válido');
   if(!nom)return toast('Ingresa el nombre');
-  if(DB.patients[dni])return toast('Ese DNI ya existe; búscalo arriba');
-  DB.patients[dni]={dni,nombre:nom.toUpperCase(),acceso:'FAV',accesoDet:'',ps:'',qb:'',qd:'',created:Date.now()};
-  save();startSession(dni);
+  if(dni&&!/^[0-9A-Za-z]{6,12}$/.test(dni))return toast('El DNI/CE no es válido (o déjalo vacío)');
+  if(dni&&DB.patients[dni])return toast('Ese DNI ya existe; búscalo arriba');
+  if(!dni){const same=Object.values(DB.patients).find(p=>p.nombre===nom.toUpperCase());if(same)return toast('Ya hay un paciente con ese nombre; búscalo arriba')}
+  const key=dni||'SD-'+uid();
+  DB.patients[key]={dni:key,nombre:nom.toUpperCase(),acceso:'',accesoDet:'',ps:'',qb:'',qd:'',filtro:'',created:Date.now()};
+  save();startSession(key);
 }
 function startSession(dni){
   const ex=sessionsOn(R.fecha).find(s=>s.dni===dni);
@@ -325,7 +343,7 @@ function vSesion(){
   const prev=sessionsOf(s.dni).filter(x=>x.id!==s.id&&x.texto);
   const last=prev[0];
   const num_='inputmode="decimal" autocomplete="off"';
-  return `<div class="card"><div class="pt"><div><div class="nm">${esc(p.nombre)}</div><div class="muted">DNI ${esc(p.dni)} · Guardia ${fmtD(s.fecha)}</div></div>
+  return `<div class="card"><div class="pt"><div><div class="nm">${esc(p.nombre)}</div><div class="muted">${dniTxt(p.dni)} · Guardia ${fmtD(s.fecha)}</div></div>
    <div style="width:120px"><label>Hora</label><input type="time" data-p="hora" value="${esc(s.hora)}"></div></div>
    ${last?`<details style="margin-top:10px"><summary>Última evolución (${fmtD(last.fecha)} ${esc(last.hora)})</summary><pre class="note">${esc(last.texto)}</pre></details>`:''}</div>
 
@@ -333,14 +351,20 @@ function vSesion(){
    <div class="grid w2" style="margin-top:10px"><div><label>Diuresis residual</label><select data-p="S.diuresis"><option value="">— no consignar —</option>${DIURESIS.map(d=>`<option ${s.S.diuresis===d?'selected':''}>${d}</option>`).join('')}</select></div>
    ${inp('S.libre','Texto libre',s,'autocomplete="off"')}</div></div>
 
-  <div class="card"><h3>O · Objetivo</h3>
-   <div class="grid">${inp('O.pas','PAS (mmHg)',s,num_)}${inp('O.pad','PAD (mmHg)',s,num_)}${inp('O.fc','FC (lpm)',s,num_)}
-   ${inp('O.peso','Peso ingreso (kg)',s,num_)}${inp('O.ps','Peso seco (kg)',s,num_)}${inp('O.uf','UF programada (L)',s,num_)}
-   ${inp('O.qb','Qb (mL/min)',s,num_)}${inp('O.qd','Qd (mL/min)',s,num_)}</div>
+  <div class="card"><h3>O · Objetivo <span class="muted" style="font-weight:400;font-size:13px">(* no puede faltar)</span></h3>
+   <div class="grid"><div class="req" data-req="PA">${inp('O.pas','PAS (mmHg)',s,num_)}</div><div class="req" data-req="PA">${inp('O.pad','PAD (mmHg)',s,num_)}</div>
+   <div class="req" data-req="FC">${inp('O.fc','FC (lpm)',s,num_)}</div><div class="req" data-req="UF">${inp('O.uf','UF (L)',s,num_)}</div></div>
+   <div class="req" data-req="FAV/CVC" style="margin-top:12px"><label>Acceso</label><div class="row"><div class="seg">${['FAV','CVC'].map(a=>`<button type="button" class="${s.O.acceso===a?'on':''}" data-acc="${a}">${a==='FAV'?'Fístula (FAV)':'Catéter (CVC)'}</button>`).join('')}</div>
+   <div style="flex:1;min-width:200px">${inp('O.accesoDet','Ubicación / tipo (opcional)',s,'placeholder="braquiocefálica izq. · yugular der. tunelizado" autocomplete="off"')}</div></div></div>
+   <div style="margin-top:10px" id="accEx">${s.O.acceso?chips('O.accesoEx',ACC_EX[s.O.acceso],s):''}</div>
+   <div class="grid w2" style="margin-top:12px"><div class="req" data-req="filtro"><label>Filtro (m²)</label><div class="chips">${FILTROS.map(f=>`<button type="button" class="chip ${s.O.filtro===f?'on':''}" data-filtro="${f}">${f}</button>`).join('')}</div>
+     <input data-p="O.filtro" value="${esc(s.O.filtro)}" placeholder="u otro (ej. FX80)" autocomplete="off" style="margin-top:6px"></div>
+    <div class="req" data-req="edemas"><label>Edemas</label><div class="seg"><button type="button" class="${s.O.edema==='no'?'on':''}" data-edema="no">No</button><button type="button" class="${s.O.edema==='si'?'on':''}" data-edema="si">Sí</button></div>
+     <div id="edDet" style="margin-top:6px">${edemaDet(s)}</div></div></div>
    <div id="calc" class="calc"></div>
-   <div class="row" style="margin-top:12px"><div class="seg">${['FAV','CVC'].map(a=>`<button type="button" class="${s.O.acceso===a?'on':''}" data-acc="${a}">${a==='FAV'?'Fístula (FAV)':'Catéter (CVC)'}</button>`).join('')}</div>
-   <div style="flex:1;min-width:200px">${inp('O.accesoDet','Ubicación / tipo',s,'placeholder="braquiocefálica izq. · yugular der. tunelizado" autocomplete="off"')}</div></div>
-   <div style="margin-top:10px" id="accEx">${chips('O.accesoEx',ACC_EX[s.O.acceso],s)}</div>
+   <details style="margin-top:12px" ${s.O.qb||s.O.qd||s.O.na||s.O.peso?'open':''}><summary>Valores extra (opcional): Qb, Qd, Na, pesos</summary>
+    <div class="grid" style="margin-top:8px">${inp('O.qb','Qb (mL/min)',s,num_)}${inp('O.qd','Qd (mL/min)',s,num_)}${inp('O.na','Conductividad Na (mEq/L)',s,num_)}
+    ${inp('O.peso','Peso ingreso (kg)',s,num_)}${inp('O.ps','Peso seco (kg)',s,num_)}</div></details>
    <label style="margin-top:12px">Examen</label>${chips('O.examen',EXAMEN,s)}
    <div style="margin-top:10px">${inp('O.examenLibre','Examen (texto libre)',s,'autocomplete="off"')}</div>
    <details style="margin-top:12px" ${LABS.some(d=>s.labs[d[0]])||s.labs.libre?'open':''}><summary>Laboratorio / hallazgo en HC (opcional)</summary>
@@ -348,7 +372,7 @@ function vSesion(){
     ${LABS.map(d=>`<div class="lab-in ${labState(d,s.labs[d[0]])}" data-lab="${d[0]}"><label>${d[1]}${d[2]?' ('+d[2]+')':''}</label><input data-p="labs.${d[0]}" value="${esc(s.labs[d[0]]||'')}" ${d[0]==='PCR'?'':num_}></div>`).join('')}</div>
     <div style="margin-top:10px">${inp('labs.libre','Hallazgo / otros',s,'autocomplete="off"')}</div></details></div>
 
-  <div class="card"><h3>Intercurrencias intradiálisis</h3><div class="chips">${INTER.map(d=>`<button type="button" class="chip ${s.inter[d.k]?.on?'on':''}" data-inter="${d.k}">${d.l}</button>`).join('')}</div>
+  <div class="card"><h3>Intercurrencias intradiálisis <span class="muted" style="font-weight:400;font-size:13px">(si no marcas ninguna: “Sin intercurrencias intradiálisis”)</span></h3><div class="chips">${INTER.map(d=>`<button type="button" class="chip ${s.inter[d.k]?.on?'on':''}" data-inter="${d.k}">${d.l}</button>`).join('')}</div>
    <div id="interDet">${interDetails(s)}</div></div>
 
   <div class="card"><h3>A · Apreciación</h3><textarea id="tA" rows="7">${esc(s.A)}</textarea>
@@ -358,6 +382,7 @@ function vSesion(){
 
   <div class="card"><h3>Vista previa (lo que se copia)</h3><pre class="note" id="prev"></pre></div>`;
 }
+function edemaDet(s){return s.O.edema==='si'?`<div class="row"><div class="seg">${EDEMA_G.map(g=>`<button type="button" class="${s.O.edemaG===g?'on':''}" data-edg="${g}">${g}</button>`).join('')}</div><input data-p="O.edemaLoc" value="${esc(s.O.edemaLoc)}" placeholder="de MMII" autocomplete="off" style="flex:1;min-width:120px"></div>`:''}
 function interDetails(s){return INTER.filter(d=>s.inter[d.k]?.on).map(d=>`<div class="inter-det"><label>${d.l}: ${d.k==='otra'?'describe':'detalle (opcional)'}</label><input data-p="inter.${d.k}.det" value="${esc(s.inter[d.k].det||'')}" autocomplete="off" placeholder="${d.k==='hipo'?'PA 80/50 mmHg a la 2.ª hora':''}"></div>`).join('')}
 let saveT=null;
 function mountSesion(){
@@ -375,6 +400,9 @@ function mountSesion(){
   app.onchange=app.oninput;
   app.onclick=e=>{const b=e.target.closest('button');if(!b)return;
     if(b.dataset.chip){const arr=getP(s,b.dataset.chip),v=b.dataset.val,i=arr.indexOf(v);if(i>=0)arr.splice(i,1);else arr.push(v);b.classList.toggle('on',i<0);upd(s,true)}
+    else if(b.dataset.filtro){s.O.filtro=b.dataset.filtro;b.parentNode.querySelectorAll('button').forEach(x=>x.classList.toggle('on',x===b));const i=document.querySelector('[data-p="O.filtro"]');if(i)i.value=s.O.filtro;upd(s,true)}
+    else if(b.dataset.edema){s.O.edema=b.dataset.edema;if(s.O.edema==='no'){s.O.edemaG='';s.O.edemaLoc=''}b.parentNode.querySelectorAll('button').forEach(x=>x.classList.toggle('on',x===b));$('#edDet').innerHTML=edemaDet(s);upd(s,true)}
+    else if(b.dataset.edg){s.O.edemaG=s.O.edemaG===b.dataset.edg?'':b.dataset.edg;b.parentNode.querySelectorAll('button').forEach(x=>x.classList.toggle('on',x.dataset.edg===s.O.edemaG));upd(s,true)}
     else if(b.dataset.acc){s.O.acceso=b.dataset.acc;s.O.accesoEx=[];b.parentNode.querySelectorAll('button').forEach(x=>x.classList.toggle('on',x===b));$('#accEx').innerHTML=chips('O.accesoEx',ACC_EX[s.O.acceso],s);upd(s,true)}
     else if(b.dataset.inter){const k=b.dataset.inter;s.inter[k]=s.inter[k]||{};s.inter[k].on=!s.inter[k].on;b.classList.toggle('on',s.inter[k].on);$('#interDet').innerHTML=interDetails(s);upd(s,true)}
   };
@@ -389,13 +417,14 @@ function upd(s,recalc){
   if(pas!=null&&(pas>=160||(pad_!=null&&pad_>=100)))c.push('<span class="hi">PA elevada</span>');
   if(pas!=null&&pas<100)c.push('<span class="lo">PA baja</span>');
   $('#calc').innerHTML=c.join(' · ');
+  const miss=missingReq(s);document.querySelectorAll('[data-req]').forEach(el=>el.classList.toggle('miss',miss.includes(el.dataset.req)));
   $('#prev').textContent=noteText(s);
   s.updated=Date.now();clearTimeout(saveT);saveT=setTimeout(save,400);
 }
 function regen(w){const s=DB.sessions[R.sid];s[w+'edit']=false;refreshAP(s);$('#t'+w).value=s[w];upd(s,false)}
 async function finishSession(copy){
-  const s=DB.sessions[R.sid];s.texto=noteText(s);if(s.estado==='pendiente')s.estado='evolucionado';
-  const p=DB.patients[s.dni];if(p){['ps','qb','qd'].forEach(k=>{if(s.O[k])p[k]=s.O[k]});p.acceso=s.O.acceso;if(s.O.accesoDet.trim())p.accesoDet=s.O.accesoDet.trim();p.updated=Date.now()}
+  const s=DB.sessions[R.sid];const miss=missingReq(s);if(miss.length&&!await ask('Falta registrar: '+miss.join(', ')+'.\n¿Guardar igual?','Guardar igual'))return;s.texto=noteText(s);if(s.estado==='pendiente')s.estado='evolucionado';
+  const p=DB.patients[s.dni];if(p){['ps','qb','qd','na','filtro'].forEach(k=>{if(s.O[k])p[k]=s.O[k]});if(s.O.acceso)p.acceso=s.O.acceso;if(s.O.accesoDet.trim())p.accesoDet=s.O.accesoDet.trim();p.updated=Date.now()}
   save();
   if(copy){if(await copyText(s.texto)){s.estado='copiado';save();toast('Guardado y copiado. Pégalo en ESSI')}else toast('Guardado, pero no se pudo copiar')}else toast('Guardado');
   go('guardia');
@@ -404,17 +433,18 @@ async function finishSession(copy){
 /* ================= Vista: Pacientes ================= */
 function vPacientes(){
   const q=(R.q||'').toLowerCase();
-  const ps=Object.values(DB.patients).filter(p=>!q||p.dni.includes(q)||p.nombre.toLowerCase().includes(q)).sort((a,b)=>a.nombre.localeCompare(b.nombre));
+  const ps=Object.values(DB.patients).filter(p=>!q||(!isSD(p.dni)&&p.dni.toLowerCase().includes(q))||p.nombre.toLowerCase().includes(q)).sort((a,b)=>a.nombre.localeCompare(b.nombre));
   return `<div class="card"><h2>Pacientes registrados (${Object.keys(DB.patients).length})</h2><input placeholder="Buscar por DNI o nombre" value="${esc(R.q||'')}" oninput="R.q=this.value;const c=this.selectionStart;render();const i=document.querySelector('main input');i.focus();i.setSelectionRange(c,c)"></div>
-  ${ps.map(p=>{const h=sessionsOf(p.dni);return `<div class="card pt" onclick="go('paciente',{dni:'${esc(p.dni)}'})" style="cursor:pointer"><div><div class="nm">${esc(p.nombre)}</div><div class="muted">DNI ${esc(p.dni)} · ${h.length} evolución(es)${h[0]?' · última '+fmtD(h[0].fecha):''}</div></div><span class="muted">›</span></div>`}).join('')||'<div class="card muted">Sin resultados.</div>'}`;
+  ${ps.map(p=>{const h=sessionsOf(p.dni);return `<div class="card pt" onclick="go('paciente',{dni:'${esc(p.dni)}'})" style="cursor:pointer"><div><div class="nm">${esc(p.nombre)}</div><div class="muted">${dniTxt(p.dni)} · ${h.length} evolución(es)${h[0]?' · última '+fmtD(h[0].fecha):''}</div></div><span class="muted">›</span></div>`}).join('')||'<div class="card muted">Sin resultados.</div>'}`;
 }
 function vPaciente(){
   const p=DB.patients[R.dni];if(!p){R.v='pacientes';return vPacientes()}
   const h=sessionsOf(p.dni);
   return `<div class="card"><h2>Ficha</h2><div class="grid w2">
-   <div><label>Nombre</label><input id="fNom" value="${esc(p.nombre)}"></div><div><label>DNI / CE</label><input value="${esc(p.dni)}" disabled></div>
-   <div><label>Acceso</label><select id="fAcc">${['FAV','CVC'].map(a=>`<option ${p.acceso===a?'selected':''}>${a}</option>`).join('')}</select></div>
+   <div><label>Nombre</label><input id="fNom" value="${esc(p.nombre)}"></div><div><label>DNI / CE ${isSD(p.dni)?'(falta)':''}</label><input id="fDni" value="${isSD(p.dni)?'':esc(p.dni)}" inputmode="numeric" placeholder="agrégalo cuando lo tengas"></div>
+   <div><label>Acceso</label><select id="fAcc"><option value="">—</option>${['FAV','CVC'].map(a=>`<option ${p.acceso===a?'selected':''}>${a}</option>`).join('')}</select></div>
    <div><label>Ubicación / tipo</label><input id="fDet" value="${esc(p.accesoDet||'')}"></div>
+   <div><label>Filtro</label><input id="fFil" value="${esc(p.filtro||'')}"></div>
    <div><label>Peso seco (kg)</label><input id="fPs" value="${esc(p.ps||'')}" inputmode="decimal"></div>
    <div><label>Qb (mL/min)</label><input id="fQb" value="${esc(p.qb||'')}" inputmode="decimal"></div>
    <div><label>Qd (mL/min)</label><input id="fQd" value="${esc(p.qd||'')}" inputmode="decimal"></div></div>
@@ -427,8 +457,13 @@ function vPaciente(){
     <div class="row" style="margin-top:8px"><button class="btn sm" onclick="go('sesion',{sid:'${s.id}'})">Editar</button><button class="btn sm" ${s.texto?'':'disabled'} onclick="copySession('${s.id}')">Copiar</button><span class="sp"></span><button class="btn bad sm" onclick="delSession('${s.id}')">Eliminar</button></div></div>`).join('')||'<div class="card muted">Sin evoluciones.</div>'}`;
 }
 function saveFicha(){const p=DB.patients[R.dni];const n=$('#fNom').value.trim();if(!n)return toast('El nombre no puede quedar vacío');
-  Object.assign(p,{nombre:n.toUpperCase(),acceso:$('#fAcc').value,accesoDet:$('#fDet').value.trim(),ps:$('#fPs').value.trim(),qb:$('#fQb').value.trim(),qd:$('#fQd').value.trim(),updated:Date.now()});save();render();toast('Ficha guardada')}
-function delPatient(dni){const p=DB.patients[dni];const n=sessionsOf(dni).length;if(!confirm('¿Eliminar a '+p.nombre+' y sus '+n+' evolución(es)? No se puede deshacer.'))return;
+  Object.assign(p,{nombre:n.toUpperCase(),acceso:$('#fAcc').value,accesoDet:$('#fDet').value.trim(),filtro:$('#fFil').value.trim(),ps:$('#fPs').value.trim(),qb:$('#fQb').value.trim(),qd:$('#fQd').value.trim(),updated:Date.now()});
+  const nd=$('#fDni').value.trim().replace(/\s/g,'');
+  if(nd&&nd!==p.dni){if(!/^[0-9A-Za-z]{6,12}$/.test(nd)){save();return toast('Ficha guardada, pero el DNI no es válido')}
+    if(DB.patients[nd]){save();return toast('Ese DNI ya pertenece a otro paciente')}
+    const old=p.dni;p.dni=nd;DB.patients[nd]=p;delete DB.patients[old];Object.values(DB.sessions).forEach(x=>{if(x.dni===old)x.dni=nd});R.dni=nd}
+  save();render();toast('Ficha guardada')}
+async function delPatient(dni){const p=DB.patients[dni];const n=sessionsOf(dni).length;if(!await ask('¿Eliminar a '+p.nombre+' y sus '+n+' evolución(es)? No se puede deshacer.'))return;
   sessionsOf(dni).forEach(s=>delete DB.sessions[s.id]);delete DB.patients[dni];save();go('pacientes');toast('Paciente eliminado')}
 
 /* ================= Vista: Ajustes ================= */
@@ -442,15 +477,15 @@ function vAjustes(){
   <div class="row"><button class="btn pri" onclick="exportBackup()">Exportar respaldo</button>
   <label class="btn" style="margin:0;color:var(--ink);font-size:16px">Importar respaldo<input type="file" accept=".json,application/json" style="display:none" onchange="importBackup(this.files[0])"></label></div></div>
   <div class="card"><h2>Zona de riesgo</h2><button class="btn bad" onclick="wipe()">Borrar todos los datos</button></div>
-  <p class="muted">Evoluciones HD v1.0 · Funciona sin internet una vez instalada. Las sugerencias de A y P son plantillas editables: valídalas con los protocolos del servicio.</p>`;
+  <p class="muted">Evoluciones HD v1.1 · Funciona sin internet una vez instalada. Las sugerencias de A y P son plantillas editables: valídalas con los protocolos del servicio.</p>`;
 }
-function wipe(){if(!confirm('¿Borrar TODOS los pacientes y evoluciones de este iPad?'))return;if(!confirm('Confirma de nuevo: esto no se puede deshacer.'))return;const pb=DB.settings.planBase;DB=blank();DB.settings.planBase=pb;save();go('guardia');toast('Datos borrados')}
+async function wipe(){if(!await ask('¿Borrar TODOS los pacientes y evoluciones de este iPad?'))return;if(!await ask('Confirma de nuevo: esto no se puede deshacer.'))return;const pb=DB.settings.planBase;DB=blank();DB.settings.planBase=pb;save();go('guardia');toast('Datos borrados')}
 async function exportBackup(){
   const blob=new Blob([JSON.stringify({app:'evol-hd',version:1,exported:new Date().toISOString(),data:DB},null,1)],{type:'application/json'});
   if(await saveFile(blob,'respaldo-evol-hd-'+todayISO()+'.json')){DB.settings.lastBackup=Date.now();save();render();toast('Respaldo exportado')}
 }
-function importBackup(file){if(!file)return;const r=new FileReader();r.onload=()=>{try{const j=JSON.parse(r.result);const d=j.data||j;if(!d.patients||!d.sessions)throw new Error('formato');
-  const mode=confirm('Aceptar = COMBINAR con los datos actuales (se queda la versión más reciente de cada registro).\nCancelar = no importar.');if(!mode)return;
+function importBackup(file){if(!file)return;const r=new FileReader();r.onload=async()=>{try{const j=JSON.parse(r.result);const d=j.data||j;if(!d.patients||!d.sessions)throw new Error('formato');
+  const mode=await ask('Se COMBINA con los datos actuales (se queda la versión más reciente de cada registro).','Combinar');if(!mode)return;
   let np=0,ns=0;Object.values(d.patients).forEach(p=>{const c=DB.patients[p.dni];if(!c||(p.updated||0)>(c.updated||0)){DB.patients[p.dni]=p;np++}});
   Object.values(d.sessions).forEach(s=>{const c=DB.sessions[s.id];if(!c||(s.updated||0)>(c.updated||0)){DB.sessions[s.id]=s;ns++}});
   if(d.settings&&d.settings.planBase&&!DB.settings.planBase)DB.settings.planBase=d.settings.planBase;
@@ -467,22 +502,22 @@ async function saveFile(blob,name){
 function blocksFor(list,title){
   const B=[{t:title,b:true,sz:28,after:200}];
   list.forEach((s,i)=>{const p=DB.patients[s.dni]||{nombre:'',dni:s.dni};
-    B.push({t:(i+1)+'. '+p.nombre+' — DNI '+p.dni,b:true,sz:24,before:i?240:0,after:80,border:true});
+    B.push({t:(i+1)+'. '+p.nombre+(isSD(p.dni)?'':' — DNI '+p.dni),b:true,sz:24,before:i?240:0,after:80,border:true});
     (s.texto||noteText(s)).split('\n').forEach(l=>B.push({t:l,b:/^(S|O|A|P):/.test(l)||/^Fecha:/.test(l)}))});
   return B;
 }
 async function exportGuardia(fmt){
   const ss=sessionsOn(R.fecha);if(!ss.length)return;
-  const pend=ss.filter(s=>!s.texto).length;if(pend&&!confirm(pend+' paciente(s) aún no tienen evolución guardada; se exportará su borrador. ¿Continuar?'))return;
+  const pend=ss.filter(s=>!s.texto).length;if(pend&&!await ask(pend+' paciente(s) aún no tienen evolución guardada; se exportará su borrador. ¿Continuar?'))return;
   const title='Evoluciones de hemodiálisis — Guardia '+fmtD(R.fecha), base='evoluciones-HD-'+R.fecha;
-  if(fmt==='txt'){const t=title+'\n\n'+ss.map((s,i)=>{const p=DB.patients[s.dni]||{};return '=== '+(i+1)+'. '+(p.nombre||'')+' — DNI '+s.dni+' ===\n'+(s.texto||noteText(s))}).join('\n\n');
+  if(fmt==='txt'){const t=title+'\n\n'+ss.map((s,i)=>{const p=DB.patients[s.dni]||{};return '=== '+(i+1)+'. '+(p.nombre||'')+(isSD(s.dni)?'':' — DNI '+s.dni)+' ===\n'+(s.texto||noteText(s))}).join('\n\n');
     return saveFile(new Blob([t],{type:'text/plain;charset=utf-8'}),base+'.txt')}
   saveFile(makeDocx(blocksFor(ss,title)),base+'.docx');
 }
 function exportPaciente(dni){const p=DB.patients[dni];const h=sessionsOf(dni).slice().reverse();
-  const B=[{t:'Historial de evoluciones — '+p.nombre,b:true,sz:28,after:60},{t:'DNI '+p.dni+' · '+h.length+' evolución(es)',after:200}];
+  const B=[{t:'Historial de evoluciones — '+p.nombre,b:true,sz:28,after:60},{t:dniTxt(p.dni)+' · '+h.length+' evolución(es)',after:200}];
   h.forEach((s,i)=>{B.push({t:fmtD(s.fecha)+' '+s.hora,b:true,sz:24,before:i?240:0,after:80,border:true});(s.texto||noteText(s)).split('\n').forEach(l=>B.push({t:l,b:/^(S|O|A|P):/.test(l)}))});
-  saveFile(makeDocx(B),'historial-'+p.dni+'.docx')}
+  saveFile(makeDocx(B),'historial-'+(isSD(p.dni)?p.nombre.split(' ')[0]:p.dni)+'.docx')}
 
 // --- DOCX mínimo (ZIP sin compresión, sin librerías externas) ---
 function xe(s){return String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])).replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g,'')}
