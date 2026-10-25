@@ -61,6 +61,18 @@ input:focus,select:focus,textarea:focus{outline:2px solid var(--pri);outline-off
 .seg{display:inline-flex;border:1px solid var(--line);border-radius:10px;overflow:hidden}
 .seg button{font:inherit;border:0;background:var(--card);color:var(--ink);padding:10px 16px;min-height:44px}
 .seg button.on{background:var(--pri);color:var(--pri-ink)}
+.acc{flex:none;min-width:64px;text-align:center;font-weight:800;font-size:20px;letter-spacing:.03em;border-radius:12px;padding:8px 10px;line-height:1.1}
+.acc small{display:block;font-size:11px;font-weight:600;letter-spacing:0}
+.acc.fav{background:#e3f4ea;color:#1f7a4a;border:2px solid #1f7a4a}
+.acc.cvc{background:#fdecea;color:#b42318;border:2px solid #b42318}
+.acc.na{background:var(--chip);color:var(--muted);border:2px dashed var(--line);font-size:16px}
+@media (prefers-color-scheme:dark){.acc.fav{background:#173226;color:#5fcf8f;border-color:#5fcf8f}.acc.cvc{background:#3d1c1a;color:#ff8a80;border-color:#ff8a80}}
+.left{display:flex;align-items:center;gap:12px;min-width:0}
+.back{margin:0 0 12px}
+.tgrp{display:flex;align-items:center;gap:8px;margin:18px 0 8px}.tgrp h3{margin:0;flex:1}
+.pos{flex:none;min-width:30px;height:30px;border-radius:50%;background:var(--chip);color:var(--ink);font-weight:700;display:flex;align-items:center;justify-content:center;font-size:14px}
+.mv{min-width:44px;font-size:18px;padding:4px 10px}
+select.tsel{width:auto;min-height:36px;padding:4px 8px;font-size:14px}
 .req>label:first-child::after,.req>div:first-child>label::after{content:' *';color:var(--bad,#b42318)}
 .miss input,.miss select,.miss .seg{outline:2px solid var(--bad,#b42318);outline-offset:1px}
 .modal{position:fixed;inset:0;background:rgba(0,0,0,.45);display:flex;align-items:center;justify-content:center;z-index:99;padding:16px}
@@ -109,9 +121,10 @@ details>summary::before{content:"▸ "}details[open]>summary::before{content:"�
 /* ================= Datos ================= */
 const KEY='hdEvo.v1', MAX=15;
 const DEFAULT_PLAN=['Continuar HD según prescripción.','UF según tolerancia hemodinámica.','Restricción hídrica y dietética.','Continuar tratamiento habitual.'].join('\n');
+const TURNOS_DEF=['19:00 – 00:00','20:00 – 01:00'];
 let DB=load();
-function blank(){return {patients:{},sessions:{},settings:{planBase:DEFAULT_PLAN,lastBackup:null}}}
-function load(){try{const r=localStorage.getItem(KEY);if(r){const d=JSON.parse(r);d.settings=Object.assign(blank().settings,d.settings||{});d.patients=d.patients||{};d.sessions=d.sessions||{};return d}}catch(e){}return blank()}
+function blank(){return {patients:{},sessions:{},settings:{planBase:DEFAULT_PLAN,lastBackup:null,turnos:TURNOS_DEF.slice()}}}
+function load(){try{const r=localStorage.getItem(KEY);if(r){const d=JSON.parse(r);d.settings=Object.assign(blank().settings,d.settings||{});if(!Array.isArray(d.settings.turnos))d.settings.turnos=TURNOS_DEF.slice();d.patients=d.patients||{};d.sessions=d.sessions||{};return d}}catch(e){}return blank()}
 function save(){try{localStorage.setItem(KEY,JSON.stringify(DB))}catch(e){toast('⚠️ No se pudo guardar: '+e.message)}}
 if(navigator.storage&&navigator.storage.persist){navigator.storage.persist().catch(()=>{})}
 
@@ -135,6 +148,17 @@ function ask(msg,ok='Sí, continuar'){return new Promise(res=>{const o=document.
   o.onclick=e=>{const b=e.target.closest('[data-r]');if(!b)return;o.remove();res(b.dataset.r==='1')};document.body.appendChild(o)})}
 // Pacientes sin DNI: se guardan con una clave interna "SD-…" y se muestran como "sin DNI"
 const isSD=k=>/^SD-/.test(String(k||''));
+function accBadge(a,id){const A=a==='FAV'?'fav':a==='CVC'?'cvc':'na';return `<div class="acc ${A}"${id?` id="${id}"`:''}>${a==='FAV'?'FAV<small>fístula</small>':a==='CVC'?'CVC<small>catéter</small>':'¿?<small>acceso</small>'}</div>`}
+const norm=s=>String(s||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase();
+// busca por DNI o por palabras del nombre en cualquier orden ("perez juan" encuentra "JUAN CARLOS PEREZ")
+function matchQ(p,q){const n=norm(q).trim();if(!n)return true;if(!isSD(p.dni)&&p.dni.includes(n.replace(/\s/g,'')))return true;const nm=norm(p.nombre);return n.split(/\s+/).every(w=>nm.includes(w))}
+function turnos(){const t=(DB.settings.turnos||[]).filter(Boolean);return t.length?t:TURNOS_DEF}
+const tIdx=t=>{const i=turnos().indexOf(t);return t?(i<0?turnos().length:i):-1};
+function sortG(a,b){const oa=a.orden??1e9,ob=b.orden??1e9;if(oa!==ob)return oa-ob;
+  return norm((DB.patients[a.dni]||{}).nombre).localeCompare(norm((DB.patients[b.dni]||{}).nombre))}
+function groupOf(f){return sessionsOn(f)}
+function renum(f){groupOf(f).forEach((x,i)=>{x.orden=i+1;const p=DB.patients[x.dni];if(p)p.lastOrden=i+1})}
+function backBtn(label,js){return `<div class="back"><button class="btn sm" onclick="${js}">← ${label}</button></div>`}
 const dniTxt=k=>isSD(k)?'sin DNI':'DNI '+k;
 function getP(o,p){return p.split('.').reduce((a,k)=>a==null?a:a[k],o)}
 function setP(o,p,v){const ks=p.split('.');let a=o;ks.slice(0,-1).forEach(k=>{a[k]=a[k]??{};a=a[k]});a[ks[ks.length-1]]=v}
@@ -268,7 +292,7 @@ function render(){
   if(R.v==='sesion')mountSesion();
   if(R.v==='agregar'){const i=$('#q');i.focus();i.setSelectionRange(i.value.length,i.value.length)}
 }
-function sessionsOn(f){return Object.values(DB.sessions).filter(s=>s.fecha===f).sort((a,b)=>a.hora.localeCompare(b.hora)||a.created-b.created)}
+function sessionsOn(f){return Object.values(DB.sessions).filter(s=>s.fecha===f).sort(sortG)}
 function sessionsOf(dni){return Object.values(DB.sessions).filter(s=>s.dni===dni).sort((a,b)=>(b.fecha+b.hora).localeCompare(a.fecha+a.hora))}
 const BADGE={pendiente:'<span class="badge b-pend">Pendiente</span>',evolucionado:'<span class="badge b-ok">Evolucionado</span>',copiado:'<span class="badge b-copy">Copiado a ESSI</span>'};
 
@@ -279,22 +303,40 @@ function backupBanner(){
   if(d!==null&&d<7)return'';
   return `<div class="alert a-warn">${lb?'Tu último respaldo fue hace '+d+' días.':'Aún no has hecho un respaldo.'} <button class="btn sm" onclick="exportBackup()">Respaldar ahora</button></div>`;
 }
+// mismo grupo de días de diálisis: L-M-V o M-J-S
+const grpDia=iso=>{const d=new Date(iso+'T12:00:00').getDay();return [1,3,5].includes(d)?'LMV':[2,4,6].includes(d)?'MJS':'D'};
+function sugeridos(){const f=R.fecha,g=grpDia(f),en=new Set(sessionsOn(f).map(x=>x.dni)),lim=new Date(new Date(f+'T12:00:00')-28*864e5).toISOString().slice(0,10);
+  const last={};Object.values(DB.sessions).forEach(x=>{if(x.fecha<f&&x.fecha>=lim&&grpDia(x.fecha)===g&&(!last[x.dni]||x.fecha>last[x.dni].fecha))last[x.dni]=x});
+  return Object.values(last).filter(x=>!en.has(x.dni)&&DB.patients[x.dni]).sort(sortG)}
+function addSug(){const f=R.fecha;[...document.querySelectorAll('[data-sug]:checked')].forEach(c=>{const dni=c.dataset.sug;if(sessionsOn(f).some(x=>x.dni===dni))return;
+    const p=DB.patients[dni],s=newSession(dni,f);s.orden=p.lastOrden?p.lastOrden-0.5:999;refreshAP(s);s.texto='';DB.sessions[s.id]=s});
+  renum(f);save();render();toast('Pacientes agregados en su puesto anterior')}
+function moveS(id,d){const s=DB.sessions[id],g=groupOf(s.fecha);const i=g.findIndex(x=>x.id===id),j=i+d;if(j<0||j>=g.length)return;
+  g.forEach((x,k)=>x.orden=k+1);g[i].orden=j+1;g[j].orden=i+1;renum(s.fecha);save();render()}
+function azGrupo(){const g=groupOf(R.fecha).sort((a,b)=>norm(DB.patients[a.dni]?.nombre).localeCompare(norm(DB.patients[b.dni]?.nombre)));g.forEach((x,i)=>x.orden=i+1);renum(R.fecha);save();render();toast('Ordenado A→Z')}
+function cardG(s,pos){const p=DB.patients[s.dni]||{nombre:'(sin ficha)',dni:s.dni};
+  return `<div class="card"><div class="pt"><div class="left"><span class="pos">${pos}</span>${accBadge(s.O.acceso||p.acceso)}<div><div class="nm">${esc(p.nombre)}</div><div class="muted">${dniTxt(p.dni)}${s.O.filtro?' · filtro '+esc(s.O.filtro):''}</div></div></div><div>${BADGE[s.estado]}</div></div>
+   <div class="row" style="margin-top:10px"><button class="btn pri sm" onclick="go('sesion',{sid:'${s.id}',from:'guardia'})">${s.estado==='pendiente'?'Evolucionar':'Editar'}</button>
+   <button class="btn sm" ${s.texto?'':'disabled'} onclick="copySession('${s.id}')">Copiar</button>
+   <button class="btn sm" onclick="go('paciente',{dni:'${esc(s.dni)}',from:'guardia'})">Historial</button><span class="sp"></span>
+   <button class="btn sm mv" title="Subir" onclick="moveS('${s.id}',-1)">↑</button><button class="btn sm mv" title="Bajar" onclick="moveS('${s.id}',1)">↓</button>
+   <button class="btn bad sm" onclick="delSession('${s.id}')">Quitar</button></div></div>`}
 function vGuardia(){
-  const ss=sessionsOn(R.fecha);
+  const ss=sessionsOn(R.fecha),q=R.gq||'',vis=ss.filter(s=>matchQ(DB.patients[s.dni]||{nombre:'',dni:s.dni},q)),sg=sugeridos();
   return backupBanner()+`<div class="card"><div class="row"><div style="flex:1;min-width:180px"><label>Fecha de guardia</label>
   <input type="date" value="${R.fecha}" onchange="R.fecha=this.value||todayISO();render()"></div>
-  <div class="muted" style="align-self:flex-end;padding-bottom:10px">${ss.length}/${MAX} pacientes</div></div></div>
-  <div class="row" style="margin-bottom:12px"><button class="btn pri" onclick="go('agregar',{q:''})">+ Agregar paciente</button><span class="sp"></span>
+  <div class="muted" style="align-self:flex-end;padding-bottom:10px">${ss.length}/${MAX} pacientes</div></div>
+  ${ss.length>4?`<input style="margin-top:10px" placeholder="Buscar en esta guardia…" value="${esc(q)}" oninput="R.gq=this.value;const c=this.selectionStart;render();const i=document.querySelector('main input[placeholder^=Buscar]');i.focus();i.setSelectionRange(c,c)">`:''}</div>
+  <div class="row" style="margin-bottom:12px"><button class="btn pri" onclick="go('agregar',{q:''})">+ Agregar paciente</button>${ss.length>1?'<button class="btn" onclick="azGrupo()">Ordenar A→Z</button>':''}<span class="sp"></span>
   <button class="btn" ${ss.length?'':'disabled'} onclick="exportGuardia('docx')">Exportar Word</button>
   <button class="btn" ${ss.length?'':'disabled'} onclick="exportGuardia('txt')">Exportar TXT</button></div>
   ${ss.length>MAX?`<div class="alert a-warn">Tienes más de ${MAX} pacientes en esta guardia.</div>`:''}
-  ${ss.length?ss.map(s=>{const p=DB.patients[s.dni]||{nombre:'(sin ficha)',dni:s.dni};return `<div class="card"><div class="pt">
-   <div><div class="nm">${esc(p.nombre)}</div><div class="muted">${dniTxt(p.dni)} · ${esc(s.hora)}${s.O.acceso?' · '+esc(s.O.acceso):''}</div></div><div>${BADGE[s.estado]}</div></div>
-   <div class="row" style="margin-top:10px"><button class="btn pri sm" onclick="go('sesion',{sid:'${s.id}'})">${s.estado==='pendiente'?'Evolucionar':'Editar'}</button>
-   <button class="btn sm" ${s.texto?'':'disabled'} onclick="copySession('${s.id}')">Copiar</button>
-   <button class="btn sm" onclick="go('paciente',{dni:'${esc(s.dni)}'})">Historial</button><span class="sp"></span>
-   <button class="btn bad sm" onclick="delSession('${s.id}')">Quitar</button></div></div>`}).join('')
-   :'<div class="card muted">No hay pacientes en esta guardia. Toca “Agregar paciente”.</div>'}`;
+  ${sg.length?`<div class="card"><details ${ss.length?'':'open'}><summary>Sugeridos: ${sg.length} paciente(s) de guardias anteriores (${grpDia(R.fecha)==='D'?'domingo':grpDia(R.fecha)})</summary>
+   <p class="muted">Se dializaron en guardias del mismo grupo de días (${grpDia(R.fecha)==='LMV'?'lunes, miércoles y viernes':grpDia(R.fecha)==='MJS'?'martes, jueves y sábado':'domingo'}) en las últimas 4 semanas. Se agregan en el puesto que tenían.</p>
+   ${sg.map(x=>{const p=DB.patients[x.dni];return `<label class="chk" style="padding:6px 0"><input type="checkbox" data-sug="${esc(x.dni)}" checked> <b>${esc(p.nombre)}</b> <span class="muted">· ${p.lastOrden?'puesto '+p.lastOrden+' · ':''}${p.acceso||'¿?'} · última ${fmtD(x.fecha)}</span></label>`}).join('')}
+   <div class="row" style="margin-top:8px"><button class="btn pri sm" onclick="addSug()">Agregar seleccionados</button></div></details></div>`:''}
+  ${ss.length?vis.map((s,i)=>cardG(s,s.orden&&!q?s.orden:i+1)).join('')
+   :'<div class="card muted">No hay pacientes en esta guardia. Toca “Agregar paciente” o usa los sugeridos.</div>'}`;
 }
 async function delSession(id){const s=DB.sessions[id];const p=DB.patients[s.dni];if(!await ask('¿Eliminar la evolución de '+(p?p.nombre:s.dni)+' del '+fmtD(s.fecha)+'? La ficha del paciente se conserva.'))return;delete DB.sessions[id];save();render();toast('Evolución eliminada')}
 async function copyText(t){try{await navigator.clipboard.writeText(t);return true}catch(e){const ta=document.createElement('textarea');ta.value=t;ta.style.position='fixed';ta.style.opacity='0';document.body.appendChild(ta);ta.select();let ok=false;try{ok=document.execCommand('copy')}catch(_){}ta.remove();return ok}}
@@ -304,14 +346,15 @@ async function copySession(id){const s=DB.sessions[id];if(await copyText(s.texto
 function vAgregar(){
   const q=R.q.trim(),ql=q.toLowerCase();
   const ps=Object.values(DB.patients);
-  const res=q?ps.filter(p=>(!isSD(p.dni)&&p.dni.includes(q))||p.nombre.toLowerCase().includes(ql)).slice(0,20):[];
+  const res=q?ps.filter(p=>matchQ(p,q)).sort((a,b)=>norm(a.nombre).localeCompare(norm(b.nombre))).slice(0,20):[];
   const exact=DB.patients[q];
   const isDoc=/^[0-9A-Za-z]{6,12}$/.test(q)&&/\d/.test(q);
-  return `<div class="card"><h2>Agregar a la guardia del ${fmtD(R.fecha)}</h2><label>Buscar por DNI o nombre</label>
-  <input id="q" value="${esc(R.q)}" inputmode="search" autocomplete="off" oninput="R.q=this.value;render()"></div>
+  return backBtn('Guardia',"go('guardia')")+`<div class="card"><h2>Agregar a la guardia del ${fmtD(R.fecha)}</h2><label>Buscar por DNI o nombre (apellidos o nombres, en cualquier orden)</label>
+  <input id="q" value="${esc(R.q)}" inputmode="search" autocomplete="off" oninput="R.q=this.value;render()">
+</div>
   ${res.map(p=>{const h=sessionsOf(p.dni),last=h[0],inter=[...new Set(h.flatMap(s=>interList(s).map(x=>x.def.l)))];
-   return `<div class="card"><div class="alert a-info" style="margin-bottom:10px">Ya lo registraste: ${h.length} evolución(es)${last?', la última el '+fmtD(last.fecha):''}. Se precargarán su acceso y filtro.${inter.length?'<br>Intercurrencias previas: '+esc(inter.join(', '))+'.':''}</div>
-   <div class="pt"><div><div class="nm">${esc(p.nombre)}</div><div class="muted">${dniTxt(p.dni)} · ${esc(p.acceso||'')} ${esc(p.accesoDet||'')}${p.filtro?' · filtro '+esc(p.filtro):''}</div></div>
+   return `<div class="card"><div class="alert a-info" style="margin-bottom:10px">Ya lo registraste: ${h.length} evolución(es)${last?', la última el '+fmtD(last.fecha):''}. Se precargarán su acceso y filtro.${p.lastOrden?'<br>Última vez estuvo en el puesto '+p.lastOrden+'.':''}${inter.length?'<br>Intercurrencias previas: '+esc(inter.join(', '))+'.':''}</div>
+   <div class="pt"><div class="left">${accBadge(p.acceso)}<div><div class="nm">${esc(p.nombre)}</div><div class="muted">${dniTxt(p.dni)}${p.accesoDet?' · '+esc(p.accesoDet):''}${p.filtro?' · filtro '+esc(p.filtro):''}</div></div></div>
    <button class="btn pri" onclick="startSession('${esc(p.dni)}')">Evolucionar</button></div></div>`}).join('')}
   ${!exact?`<div class="card"><h2>Paciente nuevo</h2><div class="grid w2">
    <div><label>Nombre completo *</label><input id="nNom" value="${!isDoc?esc(q):''}" autocomplete="off" autocapitalize="words"></div>
@@ -330,8 +373,8 @@ function createPatient(){
 }
 function startSession(dni){
   const ex=sessionsOn(R.fecha).find(s=>s.dni===dni);
-  if(ex){toast('Ya estaba en esta guardia');return go('sesion',{sid:ex.id})}
-  const s=newSession(dni,R.fecha);refreshAP(s);s.texto='';DB.sessions[s.id]=s;save();go('sesion',{sid:s.id});
+  if(ex){toast('Ya estaba en esta guardia');return go('sesion',{sid:ex.id,from:'guardia'})}
+  const p=DB.patients[dni]||{},s=newSession(dni,R.fecha);s.orden=p.lastOrden?p.lastOrden-0.5:999;refreshAP(s);s.texto='';DB.sessions[s.id]=s;renum(R.fecha);save();go('sesion',{sid:s.id,from:'guardia'});
 }
 
 /* ================= Vista: Sesión (editor SOAP) ================= */
@@ -343,7 +386,7 @@ function vSesion(){
   const prev=sessionsOf(s.dni).filter(x=>x.id!==s.id&&x.texto);
   const last=prev[0];
   const num_='inputmode="decimal" autocomplete="off"';
-  return `<div class="card"><div class="pt"><div><div class="nm">${esc(p.nombre)}</div><div class="muted">${dniTxt(p.dni)} · Guardia ${fmtD(s.fecha)}</div></div>
+  return backBtn(R.from==='paciente'?'Historial':'Guardia',"leaveSession()")+`<div class="card"><div class="pt"><div class="left">${accBadge(s.O.acceso,'accBig')}<div><div class="nm">${esc(p.nombre)}</div><div class="muted">${dniTxt(p.dni)} · Guardia ${fmtD(s.fecha)}</div></div></div>
    <div style="width:120px"><label>Hora</label><input type="time" data-p="hora" value="${esc(s.hora)}"></div></div>
    ${last?`<details style="margin-top:10px"><summary>Última evolución (${fmtD(last.fecha)} ${esc(last.hora)})</summary><pre class="note">${esc(last.texto)}</pre></details>`:''}</div>
 
@@ -388,7 +431,7 @@ let saveT=null;
 function mountSesion(){
   const s=DB.sessions[R.sid];const app=$('#app');
   const bar=document.createElement('div');bar.className='bar';
-  bar.innerHTML=`<button class="btn" onclick="finishSession(false)">Guardar</button><button class="btn pri" onclick="finishSession(true)">Guardar y copiar</button>`;
+  bar.innerHTML=`<button class="btn" onclick="leaveSession()">← Volver</button><button class="btn" onclick="finishSession(false)">Guardar</button><button class="btn pri" onclick="finishSession(true)">Guardar y copiar</button>`;
   document.body.appendChild(bar);
   app.oninput=e=>{const t=e.target;
     if(t.id==='tA'){s.A=t.value;s.Aedit=true;return upd(s,false)}
@@ -403,7 +446,7 @@ function mountSesion(){
     else if(b.dataset.filtro){s.O.filtro=b.dataset.filtro;b.parentNode.querySelectorAll('button').forEach(x=>x.classList.toggle('on',x===b));const i=document.querySelector('[data-p="O.filtro"]');if(i)i.value=s.O.filtro;upd(s,true)}
     else if(b.dataset.edema){s.O.edema=b.dataset.edema;if(s.O.edema==='no'){s.O.edemaG='';s.O.edemaLoc=''}b.parentNode.querySelectorAll('button').forEach(x=>x.classList.toggle('on',x===b));$('#edDet').innerHTML=edemaDet(s);upd(s,true)}
     else if(b.dataset.edg){s.O.edemaG=s.O.edemaG===b.dataset.edg?'':b.dataset.edg;b.parentNode.querySelectorAll('button').forEach(x=>x.classList.toggle('on',x.dataset.edg===s.O.edemaG));upd(s,true)}
-    else if(b.dataset.acc){s.O.acceso=b.dataset.acc;s.O.accesoEx=[];b.parentNode.querySelectorAll('button').forEach(x=>x.classList.toggle('on',x===b));$('#accEx').innerHTML=chips('O.accesoEx',ACC_EX[s.O.acceso],s);upd(s,true)}
+    else if(b.dataset.acc){s.O.acceso=b.dataset.acc;const ab=$('#accBig');if(ab)ab.outerHTML=accBadge(s.O.acceso,'accBig');s.O.accesoEx=[];b.parentNode.querySelectorAll('button').forEach(x=>x.classList.toggle('on',x===b));$('#accEx').innerHTML=chips('O.accesoEx',ACC_EX[s.O.acceso],s);upd(s,true)}
     else if(b.dataset.inter){const k=b.dataset.inter;s.inter[k]=s.inter[k]||{};s.inter[k].on=!s.inter[k].on;b.classList.toggle('on',s.inter[k].on);$('#interDet').innerHTML=interDetails(s);upd(s,true)}
   };
   upd(s,true);
@@ -422,25 +465,27 @@ function upd(s,recalc){
   s.updated=Date.now();clearTimeout(saveT);saveT=setTimeout(save,400);
 }
 function regen(w){const s=DB.sessions[R.sid];s[w+'edit']=false;refreshAP(s);$('#t'+w).value=s[w];upd(s,false)}
+// volver sin cerrar: lo escrito ya está guardado como borrador
+function leaveSession(){const s=DB.sessions[R.sid];clearTimeout(saveT);if(s)save();if(R.from==='paciente'&&s)go('paciente',{dni:s.dni});else go('guardia')}
 async function finishSession(copy){
   const s=DB.sessions[R.sid];const miss=missingReq(s);if(miss.length&&!await ask('Falta registrar: '+miss.join(', ')+'.\n¿Guardar igual?','Guardar igual'))return;s.texto=noteText(s);if(s.estado==='pendiente')s.estado='evolucionado';
   const p=DB.patients[s.dni];if(p){['ps','qb','qd','na','filtro'].forEach(k=>{if(s.O[k])p[k]=s.O[k]});if(s.O.acceso)p.acceso=s.O.acceso;if(s.O.accesoDet.trim())p.accesoDet=s.O.accesoDet.trim();p.updated=Date.now()}
   save();
   if(copy){if(await copyText(s.texto)){s.estado='copiado';save();toast('Guardado y copiado. Pégalo en ESSI')}else toast('Guardado, pero no se pudo copiar')}else toast('Guardado');
-  go('guardia');
+  if(R.from==='paciente')go('paciente',{dni:s.dni});else go('guardia');
 }
 
 /* ================= Vista: Pacientes ================= */
 function vPacientes(){
   const q=(R.q||'').toLowerCase();
-  const ps=Object.values(DB.patients).filter(p=>!q||(!isSD(p.dni)&&p.dni.toLowerCase().includes(q))||p.nombre.toLowerCase().includes(q)).sort((a,b)=>a.nombre.localeCompare(b.nombre));
+  const ps=Object.values(DB.patients).filter(p=>matchQ(p,q)).sort((a,b)=>norm(a.nombre).localeCompare(norm(b.nombre)));
   return `<div class="card"><h2>Pacientes registrados (${Object.keys(DB.patients).length})</h2><input placeholder="Buscar por DNI o nombre" value="${esc(R.q||'')}" oninput="R.q=this.value;const c=this.selectionStart;render();const i=document.querySelector('main input');i.focus();i.setSelectionRange(c,c)"></div>
-  ${ps.map(p=>{const h=sessionsOf(p.dni);return `<div class="card pt" onclick="go('paciente',{dni:'${esc(p.dni)}'})" style="cursor:pointer"><div><div class="nm">${esc(p.nombre)}</div><div class="muted">${dniTxt(p.dni)} · ${h.length} evolución(es)${h[0]?' · última '+fmtD(h[0].fecha):''}</div></div><span class="muted">›</span></div>`}).join('')||'<div class="card muted">Sin resultados.</div>'}`;
+  ${ps.map(p=>{const h=sessionsOf(p.dni);return `<div class="card pt" onclick="go('paciente',{dni:'${esc(p.dni)}',from:'pacientes'})" style="cursor:pointer"><div class="left">${accBadge(p.acceso)}<div><div class="nm">${esc(p.nombre)}</div><div class="muted">${dniTxt(p.dni)} · ${h.length} evolución(es)${h[0]?' · última '+fmtD(h[0].fecha):''}</div></div></div><span class="muted">›</span></div>`}).join('')||'<div class="card muted">Sin resultados.</div>'}`;
 }
 function vPaciente(){
   const p=DB.patients[R.dni];if(!p){R.v='pacientes';return vPacientes()}
   const h=sessionsOf(p.dni);
-  return `<div class="card"><h2>Ficha</h2><div class="grid w2">
+  return backBtn(R.from==='guardia'?'Guardia':'Pacientes',R.from==='guardia'?"go('guardia')":"go('pacientes')")+`<div class="card"><div class="left" style="margin-bottom:10px">${accBadge(p.acceso)}<h2 style="margin:0">${esc(p.nombre)}</h2></div><div class="grid w2">
    <div><label>Nombre</label><input id="fNom" value="${esc(p.nombre)}"></div><div><label>DNI / CE ${isSD(p.dni)?'(falta)':''}</label><input id="fDni" value="${isSD(p.dni)?'':esc(p.dni)}" inputmode="numeric" placeholder="agrégalo cuando lo tengas"></div>
    <div><label>Acceso</label><select id="fAcc"><option value="">—</option>${['FAV','CVC'].map(a=>`<option ${p.acceso===a?'selected':''}>${a}</option>`).join('')}</select></div>
    <div><label>Ubicación / tipo</label><input id="fDet" value="${esc(p.accesoDet||'')}"></div>
@@ -454,7 +499,7 @@ function vPaciente(){
    <h3>Historial (${h.length})</h3>
    ${h.map(s=>`<div class="card"><div class="pt"><div><b>${fmtD(s.fecha)} ${esc(s.hora)}</b></div>${BADGE[s.estado]}</div>
     ${s.texto?`<pre class="note">${esc(s.texto)}</pre>`:'<div class="muted">Sin texto guardado aún.</div>'}
-    <div class="row" style="margin-top:8px"><button class="btn sm" onclick="go('sesion',{sid:'${s.id}'})">Editar</button><button class="btn sm" ${s.texto?'':'disabled'} onclick="copySession('${s.id}')">Copiar</button><span class="sp"></span><button class="btn bad sm" onclick="delSession('${s.id}')">Eliminar</button></div></div>`).join('')||'<div class="card muted">Sin evoluciones.</div>'}`;
+    <div class="row" style="margin-top:8px"><button class="btn sm" onclick="go('sesion',{sid:'${s.id}',from:'paciente'})">Editar</button><button class="btn sm" ${s.texto?'':'disabled'} onclick="copySession('${s.id}')">Copiar</button><span class="sp"></span><button class="btn bad sm" onclick="delSession('${s.id}')">Eliminar</button></div></div>`).join('')||'<div class="card muted">Sin evoluciones.</div>'}`;
 }
 function saveFicha(){const p=DB.patients[R.dni];const n=$('#fNom').value.trim();if(!n)return toast('El nombre no puede quedar vacío');
   Object.assign(p,{nombre:n.toUpperCase(),acceso:$('#fAcc').value,accesoDet:$('#fDet').value.trim(),filtro:$('#fFil').value.trim(),ps:$('#fPs').value.trim(),qb:$('#fQb').value.trim(),qd:$('#fQd').value.trim(),updated:Date.now()});
@@ -477,7 +522,7 @@ function vAjustes(){
   <div class="row"><button class="btn pri" onclick="exportBackup()">Exportar respaldo</button>
   <label class="btn" style="margin:0;color:var(--ink);font-size:16px">Importar respaldo<input type="file" accept=".json,application/json" style="display:none" onchange="importBackup(this.files[0])"></label></div></div>
   <div class="card"><h2>Zona de riesgo</h2><button class="btn bad" onclick="wipe()">Borrar todos los datos</button></div>
-  <p class="muted">Evoluciones HD v1.1 · Funciona sin internet una vez instalada. Las sugerencias de A y P son plantillas editables: valídalas con los protocolos del servicio.</p>`;
+  <p class="muted">Evoluciones HD v1.3 · Funciona sin internet una vez instalada. Las sugerencias de A y P son plantillas editables: valídalas con los protocolos del servicio.</p>`;
 }
 async function wipe(){if(!await ask('¿Borrar TODOS los pacientes y evoluciones de este iPad?'))return;if(!await ask('Confirma de nuevo: esto no se puede deshacer.'))return;const pb=DB.settings.planBase;DB=blank();DB.settings.planBase=pb;save();go('guardia');toast('Datos borrados')}
 async function exportBackup(){
