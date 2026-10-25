@@ -19,20 +19,14 @@ const FBK=[['orinas','ORINAS'],['heces','HECES'],['sed','SED'],['apetito','APETI
 const ENFS=['DM','HTA','TBC','ASMA','LES'];
 const TAMIZ=['HBSAG','ANTI-HBC TOTAL','ANTI-HBS','ANTI-VHC','VIH','VDRL / RPR','PPD / IGRA','BK EN ESPUTO','RX DE TÓRAX','PARASITOLÓGICO (STRONGYLOIDES)'];
 // columnas de la tabla de laboratorio: id → {l: encabezado, k: claves del lector}
-const COLDEF={LEU:{l:'LEUCO',k:['LEU']},HB:{l:'HB',k:['HB']},PLAQ:{l:'PLAQ',k:['PLAQ']},CREA:{l:'CREA',k:['CREA']},UREA:{l:'UREA',k:['UREA']},K:{l:'K',k:['K']},NA:{l:'NA',k:['NA']},
- KNA:{l:'K/NA',k:['K','NA']},RC:{l:'RECUENTO CELULAR',k:['RC']},PCR:{l:'PCR',k:['PCR']},COLEST:{l:'COLEST',k:['COLEST']},TRIG:{l:'TRIG',k:['TRIG']},PROT24:{l:'PROTEINURIA 24 H',k:['PROT24']},
- PGA:{l:'PROT/G/ALB',k:['PT','GLOB','ALB']},T4TSH:{l:'T4/TSH',k:['T4L','TSH']},PTHPCA:{l:'PTH/P/CA',k:['PTH','P','CA']},GLU:{l:'GLUCOSA',k:['GLU']},ALB:{l:'ALB',k:['ALB']},
- SEG:{l:'SEG',k:['SEG']},ABS:{l:'ABAST',k:['ABS']},AU:{l:'ÁC. ÚRICO',k:['AU']},MG:{l:'MG',k:['MG']},PCT:{l:'PCT',k:['PCT']},HBA1C:{l:'HBA1C',k:['HBA1C']},VSG:{l:'VSG',k:['VSG']},DHL:{l:'DHL',k:['DHL']},
- TGO:{l:'TGO/TGP',k:['TGO','TGP']},INR:{l:'INR',k:['INR']},MALB:{l:'MICROALB 24 H',k:['MALB']},DEPCR:{l:'DEP. CREAT',k:['DEPCR']},OHEM:{l:'HEMATÍES ORINA',k:['OHEM']},RPC:{l:'PROT/CREAT',k:['RPC']},FERR:{l:'FERRITINA',k:['FERR']},CL:{l:'CL',k:['CL']},EOS:{l:'EOS',k:['EOS']},LINF:{l:'LINF',k:['LINF']},HTO:{l:'HTO',k:['HTO']},TPTTP:{l:'TP/TTP',k:['TP','TTP']},BNP:{l:'NT-PROBNP',k:['BNP']},CA:{l:'CA',k:['CA']},P:{l:'P',k:['P']},PTH:{l:'PTH',k:['PTH']},TGOTGP:{l:'TGO/TGP',k:['TGO','TGP']}};
-const PRESET={general:['LEU','HB','PLAQ','CREA','UREA','K','NA','RC','PCR'],pulso:['CREA','UREA','HB','LEU','KNA','COLEST','TRIG','PROT24','PGA','T4TSH','PTHPCA']};
 const ORD=['PRIMER','SEGUNDO','TERCER','CUARTO','QUINTO','SEXTO','SÉPTIMO','OCTAVO','NOVENO','DÉCIMO','UNDÉCIMO','DUODÉCIMO'];
 const MESES=['ENERO','FEBRERO','MARZO','ABRIL','MAYO','JUNIO','JULIO','AGOSTO','SETIEMBRE','OCTUBRE','NOVIEMBRE','DICIEMBRE'];
 const PROC_CHIPS=['BIOPSIA RENAL','CVC PARA HEMODIÁLISIS','FAV','CATÉTER TENCKHOFF','HEMODIÁLISIS','DIÁLISIS PERITONEAL','PLASMAFÉRESIS','TRASPLANTE RENAL','BIOPSIA DE PIEL','ENDOSCOPÍA'];
 const ESQ_CHIPS=['METILPREDNISOLONA 500 MG EV C/24H X 3 DÍAS','METILPREDNISOLONA 1 G EV C/24H X 3 DÍAS','+ CICLOFOSFAMIDA 500 MG EV','+ CICLOFOSFAMIDA 1 G EV','RITUXIMAB 1 G EV'];
 
-let DB=load();
+let DB;
 function blank(){return {patients:{},hcs:{},settings:{autor:'',ex:{...EXDEF},exGen:EXGEN,lastBackup:null}}}
-function load(){try{const r=localStorage.getItem(KEY);if(r){const d=JSON.parse(r),b=blank();d.settings=Object.assign(b.settings,d.settings||{});d.settings.ex=Object.assign({...EXDEF},d.settings.ex||{});d.patients=d.patients||{};d.hcs=d.hcs||{};return d}}catch(e){}return blank()}
+function load(){try{const r=localStorage.getItem(KEY);if(r){const d=JSON.parse(r),b=blank();d.settings=Object.assign(b.settings,d.settings||{});d.settings.ex=Object.assign({...EXDEF},d.settings.ex||{});d.patients=d.patients||{};d.hcs=d.hcs||{};return migrate(d)}}catch(e){}return blank()}
 function save(){try{localStorage.setItem(KEY,JSON.stringify(DB))}catch(e){toast('⚠️ No se pudo guardar: '+e.message)}}
 if(navigator.storage&&navigator.storage.persist)navigator.storage.persist().catch(()=>{});
 
@@ -68,30 +62,97 @@ function ask(msg,ok='Sí, continuar'){return new Promise(res=>{const o=document.
 
 /* ---------- modelos ---------- */
 function newPatient(dni,nombre){return {dni,nombre,fnac:'',edad:'',sexo:'',natural:'',procedencia:'',ocupacion:'',civil:'',familiar:'',telefono:'',religion:'',grupo:'',
-  ant:{parto:'NACIDO DE PARTO VAGINAL',inmun:'REFIERE INMUNIZACIONES COMPLETAS',covid:'',enf:{DM:'NO',HTA:'NO',TBC:'NO',ASMA:'NO',LES:'NO'},otras:'',quir:'',med:'',alerg:'NIEGA',transf:'',proc:[]},
-  labs:[],pulsos:[],inmuno:[],tamiz:{},biopsia:{fecha:'',texto:''},informes:[],cols:{general:PRESET.general.slice(),pulso:PRESET.pulso.slice()},updated:Date.now()}}
+  ant:{parto:'NACIDO DE PARTO VAGINAL',inmun:'REFIERE INMUNIZACIONES COMPLETAS',covid:'',enf:{DM:'NO',HTA:'NO',TBC:'NO',ASMA:'NO',LES:'NO'},otras:'',quir:'',med:'',alerg:'NIEGA',transf:'',proc:[],hosp:''},
+  labs:[],pulsos:[],inmuno:[],tamiz:{},biopsia:{fecha:'',texto:''},informes:[],updated:Date.now()}}
 function lastHC(dni,exceptId){return Object.values(DB.hcs).filter(h=>h.dni===dni&&h.id!==exceptId).sort((a,b)=>(b.fecha||'').localeCompare(a.fecha||'')||b.created-a.created)[0]}
 function newHC(dni,tipo){const prev=lastHC(dni);const f=todayISO();
   const hc={id:uid(),dni,tipo,fechaIng:f,fecha:f,ingresaPor:tipo==='pulso'?'CONSULTORIO EXTERNO':'EMERGENCIA',informante:'PACIENTE',elaborado:DB.settings.autor,
     tiempo:'',sintomas:'',hea:'',fb:{orinas:'CONSERVADAS',heces:'CONSERVADAS',sed:'CONSERVADA',apetito:'CONSERVADO',sueno:'CONSERVADO'},
-    fv:{pa:'',fc:'',fr:'',sat:'',fio2:'0.21',t:'',peso:''},exGen:DB.settings.exGen,ex:{...DB.settings.ex},dx:'',pulsoId:null,created:Date.now(),updated:Date.now()};
+    fv:{pa:'',fc:'',fr:'',sat:'',fio2:'0.21',t:'',peso:''},exGen:DB.settings.exGen,ex:{...DB.settings.ex},dx:'',pulsoId:null,ni:{basal:'',plan:'',ind:''},created:Date.now(),updated:Date.now()};
   if(prev){hc.fb=clone(prev.fb);hc.ex=clone(prev.ex);hc.exGen=prev.exGen;hc.dx=prev.dx;hc.tiempo=prev.tiempo;hc.sintomas=tipo==='pulso'?'':prev.sintomas;hc.prevId=prev.id}
   if(tipo==='pulso'){const p=DB.patients[dni];const last=p.pulsos.slice().sort((a,b)=>(a.fi||'').localeCompare(b.fi||'')).pop();
-    const np={id:uid(),fi:f,ff:'',esquema:last?last.esquema:'',cfm:last?last.cfm:'',nota:'',created:Date.now()};p.pulsos.push(np);hc.pulsoId=np.id}
+    const ln=last?parseInt(last.num):0;const np={id:uid(),num:ln>0?String(ln+1):'',fi:f,ff:'',esquema:last?last.esquema:'',cfm:last?last.cfm:'',nota:'',created:Date.now()};p.pulsos.push(np);hc.pulsoId=np.id}
   return hc}
 function pulsosSorted(p){return p.pulsos.slice().sort((a,b)=>(a.fi||'9').localeCompare(b.fi||'9')||a.created-b.created)}
-function ordinalOf(p,x){const i=pulsosSorted(p).findIndex(y=>y.id===x.id);return ORD[i]||((i+1)+'°')}
+function ordinalOf(p,x){const n=parseInt(x.num);const i=n>0?n-1:pulsosSorted(p).findIndex(y=>y.id===x.id);return ORD[i]||((i+1)+'°')}
 function pulsoTitle(p,x){return ordinalOf(p,x)+' PULSO'+(x.esquema.trim()?' DE '+up(x.esquema.trim()):'')}
 function cfmTotal(p,hasta,incl){return pulsosSorted(p).filter(x=>x.fi&&(incl?x.fi<=hasta:x.fi<hasta)).reduce((s,x)=>s+(parseFloat(String(x.cfm).replace(',','.'))||0),0)}
 
-/* ---------- tabla de labs ---------- */
-function cellVal(L,col){return COLDEF[col].k.map(k=>L.items[k]||'').every(v=>!v)?'':COLDEF[col].k.map(k=>L.items[k]||'').join('/').replace(/^\/+|\/+$/g,'')}
-function labRows(p,hc){const cols=p.cols[hc.tipo];const asc=hc.tipo==='pulso';
-  const R=[];p.labs.filter(l=>l.fecha<=hc.fecha).forEach(l=>{const cells=cols.map(c=>cellVal(l,c));if(cells.some(Boolean)||(l.nota||'').trim())R.push({t:'lab',fecha:l.fecha,cells,nota:(l.nota||'').trim(),ord:l.fecha+'0'})});
-  p.pulsos.filter(x=>x.fi&&x.fi<=hc.fecha).forEach(x=>{const act=x.id===hc.pulsoId;R.push({t:'pulso',fecha:x.ff||x.fi,txt:pulsoTitle(p,x)+(act?' (ACTUAL)':''),sub:fechasPalabras(x.fi,x.ff)+(x.cfm?' · CFM '+x.cfm+' MG':'')+(x.nota.trim()?' · '+up(x.nota.trim()):''),ord:(x.ff||x.fi)+'1'})});
-  R.sort((a,b)=>a.ord.localeCompare(b.ord));if(!asc)R.reverse();const keep=cols.map((c,i)=>R.some(r=>r.t==='lab'&&r.cells[i]));R.forEach(r=>{if(r.cells)r.cells=r.cells.filter((_,i)=>keep[i])});return {cols:cols.filter((_,i)=>keep[i]).map(c=>COLDEF[c].l),rows:R}}
-function outOfCols(p,hc){const ks=new Set(p.cols[hc.tipo].flatMap(c=>COLDEF[c].k));const o=new Set();p.labs.forEach(l=>Object.keys(l.items).forEach(k=>{if(l.items[k]&&!ks.has(k)&&LABMAP[k]&&LABMAP[k].a!=='INMUNO')o.add(k)}));return [...o]}
-function suggestCol(k){return Object.keys(COLDEF).find(c=>COLDEF[c].k.includes(k))}
+/* ---------- laboratorio: categorías, selección y tablas verticales ---------- */
+const CATS=[['hem','Hemograma',['LEU','SEG','ABS','LINF','MONO','EOS','HB','HTO','VCM','PLAQ']],['coag','Coagulación',['INR','TP','TTP','FIB']],
+ ['ren','Función renal y electrolitos',['CREA','UREA','NA','K','CL','CA','CAI','P','MG','AU','B2M']],['r24','Orina de 24 h',['PROT24','MALB','DEPCR','CREA24','RPC']],
+ ['ori','Examen de orina',OKEYS],['hep','Perfil hepático',['TGO','TGP','FA','GGT','BT','BD','BI','PT','ALB','GLOB','DHL','CPK']],['lip','Lípidos',['COLEST','TRIG','HDL','LDL']],
+ ['met','Metabólico / endocrino',['GLU','HBA1C','TSH','T4L','T3','PTH','VITD','BNP']],['inf','Inflamación',['PCR','PCT','VSG']],['anem','Perfil de anemia',['FE','TRANSF','FERR','B12','FOL']],
+ ['inm','Inmunología',[]],['sero','Serologías',['HBSAG','HBC','HBS','VHC','VIH','VDRL','TREP','HAVIGM','CMVG','CMVM','TOXG','TOXM','RUBG','RUBM','HTLV','CHAGAS']],
+ ['tum','Marcadores tumorales',['CYFRA','CA125','CA199','CA153','AFP','CEA','PSA']],['aga','Gases arteriales',[]],['otr','Otros',[]]];
+const RLAB={LEU:'Leucocitos (/mm³)',SEG:'Segmentados (%)',ABS:'Abastonados (%)',LINF:'Linfocitos (%)',MONO:'Monocitos (%)',EOS:'Eosinófilos (%)',HB:'Hemoglobina (g/dL)',HTO:'Hematocrito (%)',VCM:'VCM (fL)',PLAQ:'Plaquetas (/mm³)',VSG:'VSG (mm/h)',
+ INR:'INR',TP:'TP (s)',TTP:'TTPa (s)',FIB:'Fibrinógeno (mg/dL)',GLU:'Glucosa (mg/dL)',UREA:'Urea (mg/dL)',CREA:'Creatinina (mg/dL)',AU:'Ácido úrico (mg/dL)',NA:'Sodio (mEq/L)',K:'Potasio (mEq/L)',CL:'Cloro (mEq/L)',
+ CA:'Calcio (mg/dL)',CAI:'Calcio iónico (mmol/L)',P:'Fósforo (mg/dL)',MG:'Magnesio (mg/dL)',B2M:'β2-microglobulina (mg/L)',PCR:'PCR (mg/dL)',PCT:'Procalcitonina (ng/mL)',DHL:'DHL (U/L)',CPK:'CPK (U/L)',
+ FERR:'Ferritina (ng/mL)',HBA1C:'HbA1c (%)',VITD:'Vitamina D (ng/mL)',TGO:'TGO (U/L)',TGP:'TGP (U/L)',FA:'Fosfatasa alcalina (U/L)',GGT:'GGT (U/L)',BT:'Bilirrubina total (mg/dL)',BD:'Bilirrubina directa (mg/dL)',
+ BI:'Bilirrubina indirecta (mg/dL)',PT:'Proteínas totales (g/dL)',ALB:'Albúmina (g/dL)',GLOB:'Globulinas (g/dL)',PH:'pH',PCO2:'pCO₂ (mmHg)',PO2:'pO₂ (mmHg)',HCO3:'HCO₃ (mmol/L)',BE:'Exceso de base',
+ LAC:'Lactato (mmol/L)',SAT:'SatO₂ (%)',FIO2:'FiO₂ (%)',PAFI:'PaO₂/FiO₂',AG:'Anión gap',KAGA:'K⁺ (AGA)',NAAGA:'Na⁺ (AGA)',CLAGA:'Cl⁻ (AGA)',PROT24:'Proteinuria 24 h (g/24 h)',CREA24:'Creatinuria 24 h (g/24 h)',
+ MALB:'Microalbuminuria (mg/24 h)',DEPCR:'Dep. de creatinina (mL/min)',RPC:'Índice prot/creat',COLEST:'Colesterol total (mg/dL)',TRIG:'Triglicéridos (mg/dL)',HDL:'HDL (mg/dL)',LDL:'LDL (mg/dL)',
+ T4L:'T4 libre (ng/dL)',TSH:'TSH (µUI/mL)',T3:'T3 (ng/dL)',PTH:'PTH (pg/mL)',BNP:'NT-proBNP (pg/mL)',FE:'Hierro sérico (µg/dL)',TRANSF:'Transferrina (mg/dL)',B12:'Vitamina B12 (pg/mL)',FOL:'Ácido fólico (ng/mL)',
+ C3:'C3 (mg/dL)',C4:'C4 (mg/dL)',IGG:'IgG (mg/dL)',IGA:'IgA (mg/dL)',IGM:'IgM (mg/dL)',IGE:'IgE (UI/mL)',OLEU:'Leucocitos (x campo)',OHEM:'Hematíes (x campo)',OPROT:'Proteínas',ODENS:'Densidad',OPH:'pH',
+ OBACT:'Bacterias',OCIL:'Cilindros',OCEL:'Células epiteliales',OCOLOR:'Color',OASP:'Aspecto',OTHEV:'Thevenon',OCRIS:'Cristales'};
+const NIAB={CREA:'CREA',GLU:'GLU',AU:'AU',CA:'CA',CAI:'CAI',P:'P',MG:'MG',FIB:'FIB',FERR:'FERRITINA',FA:'FA',PT:'PT',ALB:'ALB',LAC:'LAC',PROT24:'PROT 24H',CREA24:'CREAT 24H',MALB:'MICROALB 24H',
+ DEPCR:'DEP CREAT',RPC:'IPC',OLEU:'LEU',OHEM:'HEM',OPROT:'PROT',ODENS:'DENS',OPH:'PH',OBACT:'BACT',OCIL:'CIL',OCEL:'CEL EPIT',OCOLOR:'COLOR',OASP:'ASPECTO',OTHEV:'THEVENON',OCRIS:'CRISTALES',
+ COLEST:'COL',TRIG:'TG',FE:'FE',TRANSF:'TRANSF',B12:'B12',FOL:'FOLATO',B2M:'B2M',PCO2:'PCO2',PO2:'PO2',HCO3:'HCO3',SAT:'SAT',FIO2:'FIO2',PAFI:'PAFI',AG:'AG',KAGA:'K',NAAGA:'NA',CLAGA:'CL'};
+const PCT_K=['SEG','ABS','LINF','MONO','EOS'];
+function abbr(k){return NIAB[k]||(LABMAP[k]?LABMAP[k].n:k)}
+function rlab(k){if(RLAB[k])return RLAB[k];const d=LABMAP[k];if(!d)return k;const n=/^[A-Z0-9\-\/ .]{1,8}$/.test(d.n)?d.n:d.n.charAt(0)+d.n.slice(1).toLocaleLowerCase('es');return n+(d.u?' ('+d.u.toLowerCase()+')':'')}
+function catOf(k){for(const c of CATS)if(c[2].includes(k))return c[0];const a=LABMAP[k]&&LABMAP[k].a;return a==='INMUNO'?'inm':a==='AGA'?'aga':'otr'}
+const CATI={};CATS.forEach((c,i)=>CATI[c[0]]=i);
+function keyCmp(a,b){return CATI[catOf(a)]-CATI[catOf(b)]||(LABORDER.indexOf(a)-LABORDER.indexOf(b))}
+function tblOf(k){const c=catOf(k);return c==='ori'?'ori':(c==='inm'||c==='sero')?'inm':'main'}
+const TBLT={main:'LABORATORIO',ori:'EXAMEN DE ORINA',inm:'INMUNOLOGÍA Y SEROLOGÍAS'};
+/* todas las filas de labs agrupadas por fecha (misma fecha en varias filas → se juntan) */
+function labMap(p,hasta){const M={};p.labs.forEach(l=>{if(!l.fecha||(hasta&&l.fecha>hasta))return;const m=M[l.fecha]=M[l.fecha]||{items:{},fl:{},nota:[]};
+  Object.keys(l.items||{}).forEach(k=>{const v=String(l.items[k]??'').trim();if(v){m.items[k]=v;if(l.fl&&l.fl[k])m.fl[k]=l.fl[k]}});if((l.nota||'').trim())m.nota.push(l.nota.trim())});return M}
+const PRESETS={pulso:{n:'💉 Pulso',d:'Creatinina, proteinuria 24 h y albúmina, con las columnas de los pulsos',keys:['CREA','PROT24','ALB'],infs:false},
+  estudio:{n:'🩺 Estudio',d:'Todo lo que hay en esas fechas, con imágenes e informes',keys:null,infs:true}};
+function selOf(hc){if(!hc.sel)hc.sel={preset:hc.tipo==='pulso'?'pulso':'estudio',keys:null,off:[],infs:null,desde:'',pul:true};return hc.sel}
+function presentKeys(p,hc){const S=selOf(hc),M=labMap(p,hc.fecha),s=new Set();Object.keys(M).forEach(f=>{if(S.desde&&f<S.desde)return;Object.keys(M[f].items).forEach(k=>s.add(k))});return [...s].sort(keyCmp)}
+function selKeys(p,hc){const S=selOf(hc);if(S.keys)return S.keys.slice();const pk=presentKeys(p,hc),P=PRESETS[S.preset]||PRESETS.estudio;return P.keys?P.keys.filter(k=>pk.includes(k)):pk}
+function infsIn(p,hc){const S=selOf(hc);return p.informes.filter(r=>(r.titulo||'').trim()||(r.texto||'').trim()).filter(r=>(!r.fecha||r.fecha<=hc.fecha)&&(!S.desde||!r.fecha||r.fecha>=S.desde)).sort((a,b)=>(b.fecha||'').localeCompare(a.fecha||''))}
+function selInfs(p,hc){const S=selOf(hc);if(S.infs)return S.infs.slice();const P=PRESETS[S.preset]||PRESETS.estudio;return P.infs?infsIn(p,hc).map(r=>r.id):[]}
+function selDates(p,hc,keys){const S=selOf(hc),M=labMap(p,hc.fecha);return Object.keys(M).filter(f=>(!S.desde||f>=S.desde)&&!S.off.includes(f)&&keys.some(k=>M[f].items[k])).sort()}
+function pulAbbr(x){const u=deacc(x.esquema||'');const a=[];if(/METILPRED|MTP|BOLO/.test(u))a.push('MTP');if(/CICLOFOSF|CFM|CYC/.test(u))a.push('CFM');if(/RITUX|RTX/.test(u))a.push('RTX');return a.join('+')||'PULSO'}
+function pulNum(p,x){const n=parseInt(x.num);if(n>0)return String(n);return String(pulsosSorted(p).findIndex(y=>y.id===x.id)+1)}
+function d6(iso){const[y,m,d]=iso.split('-');return d+'-'+m+'-'+y.slice(2)}
+function pulLabel(p,x){return pulNum(p,x)+'° '+pulAbbr(x)+' · '+d6(x.fi)}
+function labBuild(p,hc){const S=selOf(hc),keys=selKeys(p,hc),M=labMap(p,hc.fecha);
+  const G={main:[],ori:[],inm:[]};keys.slice().sort(keyCmp).forEach(k=>G[tblOf(k)].push(k));const tables=[];
+  ['main','ori','inm'].forEach(g=>{const ks=G[g];if(!ks.length)return;const ds=selDates(p,hc,ks);
+    const cols=ds.map(f=>({t:'d',f,ord:f+'0'}));
+    if(g==='main'&&S.pul)p.pulsos.filter(x=>x.fi&&(x.id===hc.pulsoId||(x.fi<=hc.fecha&&(!S.desde||x.fi>=S.desde)))).forEach(x=>cols.push({t:'p',f:x.fi,txt:pulLabel(p,x),ord:x.fi+'1'}));
+    if(!ds.length)return;cols.sort((a,b)=>a.ord.localeCompare(b.ord));
+    tables.push({g,title:TBLT[g],keys:ks.filter(k=>ds.some(f=>M[f].items[k])),cols,val:(k,f)=>M[f]?{v:M[f].items[k]||'',b:!!M[f].fl[k]}:{v:'',b:false}})});
+  const notas=Object.keys(M).filter(f=>(!S.desde||f>=S.desde)&&!S.off.includes(f)&&M[f].nota.length).sort().map(f=>fmtD(f)+': '+M[f].nota.join(' / '));
+  return {tables,notas}}
+/* vista previa HTML de las tablas (igual que en el Word) */
+function labPreviewHTML(p,hc){const lb=labBuild(p,hc);if(!lb.tables.length)return '<div class="muted">Nada elegido todavía.</div>';
+  return lb.tables.map(t=>{const n=t.keys.length;
+    const head=`<tr><th>Parámetro</th>${t.cols.map(c=>c.t==='p'?`<th class="pu" rowspan="${n+1}"><span>${esc(c.txt)}</span></th>`:`<th>${c.f.slice(8)}-${c.f.slice(5,7)}<br>${c.f.slice(2,4)}</th>`).join('')}</tr>`;
+    const rows=t.keys.map(k=>`<tr><td>${esc(rlab(k))}</td>${t.cols.filter(c=>c.t==='d').map(c=>{const x=t.val(k,c.f);return `<td>${x.b?'<b>'+esc(x.v)+'</b>':esc(x.v)}</td>`}).join('')}</tr>`).join('');
+    return `<h4>${t.title}</h4><div class="ltw"><table class="lt">${head}${rows}</table></div>`}).join('')+(lb.notas.length?`<h4>Notas</h4><pre class="note">${esc(lb.notas.join('\n'))}</pre>`:'')}
+/* guarda filas leídas en p.labs (+ tamizaje e informes) */
+const TZK={HBSAG:'HBSAG',HBC:'ANTI-HBC TOTAL',HBS:'ANTI-HBS',VHC:'ANTI-VHC',VIH:'VIH',VDRL:'VDRL / RPR'};
+const IMG_RE=/ECOGRAF|RADIOGRAF|\bRX\b|TOMOGRAF|\bTEM\b|\bTAC\b|RESONANCIA|\bRMN?\b|GAMMAGRAF|DOPPLER|ECOCARDIO|ANGIO|UROGRAF|ELASTOGRAF|DENSITOMETR/;
+function saveLabRows(p,rows,texts){let n=0;const fs=new Set();
+  rows.forEach(r=>{const v=String(r.v||'').trim();if(!r.fecha||!v||!r.k)return;fs.add(r.fecha);
+    if(TZK[r.k]){const c=p.tamiz[TZK[r.k]];if(!c||!c.r||!c.f||c.f<=r.fecha)p.tamiz[TZK[r.k]]={r:up(v),f:r.fecha}}
+    let L=p.labs.find(x=>x.fecha===r.fecha);if(!L){L={id:uid(),fecha:r.fecha,items:{},fl:{},nota:'',created:Date.now()};p.labs.push(L)}L.fl=L.fl||{};
+    L.items[r.k]=up(v);if(r.fl)L.fl[r.k]=r.fl;else delete L.fl[r.k];n++});
+  (texts||[]).forEach(t=>{const T=t.onlyC&&t.concl?t.concl:t.texto;const ex=p.informes.find(i=>i.fecha===t.fecha&&deacc(i.titulo)===deacc(t.titulo));
+    if(ex){ex.texto=T;if(!ex.res)ex.res=t.concl||''}else p.informes.push({id:uid(),titulo:t.titulo,fecha:t.fecha,texto:T,res:t.concl||'',img:t.img!=null?!!t.img:IMG_RE.test(deacc(t.titulo)),created:Date.now()})});
+  return {n,fechas:[...fs].sort()}}
+function migrate(d){Object.values(d.patients||{}).forEach(p=>{p.labs=p.labs||[];p.labs.forEach(l=>{l.items=l.items||{};l.fl=l.fl||{}});
+    (p.inmuno||[]).forEach(r=>{if(!r.fecha)return;let L=p.labs.find(x=>x.fecha===r.fecha);if(!L){L={id:r.id||uid(),fecha:r.fecha,items:{},fl:{},nota:'',created:r.created||Date.now()};p.labs.push(L)}
+      Object.keys(r.items||{}).forEach(k=>{if(String(r.items[k]||'').trim()&&!L.items[k])L.items[k]=r.items[k]})});p.inmuno=[];
+    p.ant=p.ant||{};if(p.ant.hosp==null)p.ant.hosp='';p.pulsos=p.pulsos||[];p.pulsos.forEach(x=>{if(x.num==null)x.num=''});p.tamiz=p.tamiz||{};
+    p.informes=p.informes||[];p.informes.forEach(r=>{if(r.res==null)r.res='';if(r.img==null)r.img=IMG_RE.test(deacc(r.titulo||''))});delete p.cols});
+  Object.values(d.hcs||{}).forEach(h=>{if(!h.ni)h.ni={basal:'',plan:'',ind:''}});d.ver=2;return d}
 
 /* ---------- documento (bloques → Word y TXT) ---------- */
 function docBlocks(hc){
@@ -104,18 +165,19 @@ function docBlocks(hc){
   T('FUNCIONES BIOLÓGICAS:');B.push({t:'bul',items:FBK.map(([k,l])=>l+': '+(hc.fb[k]||''))});
   T('ANTECEDENTES');B.push({t:'sub',x:'- Antecedentes personales:'},{t:'bul',items:[A.parto,A.inmun,A.covid&&('VACUNAS COVID: '+A.covid)].filter(Boolean)});
   B.push({t:'sub',x:'- Enfermedades médicas previas:'},{t:'p',x:ENFS.map(e=>e+' ('+(A.enf[e]||'NO')+')').join(', ')});if(lines(A.otras).length)B.push({t:'bul',items:lines(A.otras)});
+  B.push({t:'sub',x:'- Hospitalizaciones previas:'},lines(A.hosp).length?{t:'bul',items:lines(A.hosp)}:{t:'p',x:'NIEGA'});
   B.push({t:'sub',x:'- Cirugías previas:'},lines(A.quir).length?{t:'bul',items:lines(A.quir)}:{t:'p',x:'NIEGA'});
   const PR=(A.proc||[]).filter(x=>x.n.trim());if(PR.length)B.push({t:'sub',x:'- Procedimientos previos:'},{t:'bul',items:PR.map(x=>(x.f.trim()?x.f.trim()+': ':'')+x.n.trim()+(x.d.trim()?' — '+x.d.trim():''))});
   B.push({t:'sub',x:'- Medicación habitual:'},lines(A.med).length?{t:'bul',items:lines(A.med)}:{t:'p',x:'NIEGA'});
   B.push({t:'kp',k:'- Alergias: ',x:A.alerg||'NIEGA'});if(A.transf.trim())B.push({t:'kp',k:'- Transfusiones: ',x:A.transf});
   T('EXÁMENES AUXILIARES');if(p.grupo)B.push({t:'kp',k:'GRUPO SANGUÍNEO: ',x:p.grupo});
-  const lt=labRows(p,hc);if(lt.rows.length){B.push({t:'sub',x:'LABORATORIO'},{t:'lab',...lt})}
+  const lb=labBuild(p,hc);lb.tables.forEach(t=>B.push({t:'sub',x:t.title},{t:'vtab',tb:t}));if(lb.notas.length)B.push({t:'bul',items:lb.notas});
   if(hc.tipo==='pulso'||p.pulsos.some(x=>x.fi&&x.fi<=hc.fecha)){const act=p.pulsos.find(x=>x.id===hc.pulsoId);const prev=cfmTotal(p,act?act.fi:hc.fecha,false),tot=cfmTotal(p,hc.fecha,true);
     const L=[];if(act)L.push('PULSO ACTUAL: '+pulsoTitle(p,act)+' ('+fechasPalabras(act.fi,act.ff)+').');if(tot)L.push('DOSIS ACUMULADA DE CICLOFOSFAMIDA: '+fmtG(prev)+' PREVIA'+(act&&act.cfm?' / '+fmtG(tot)+' INCLUYENDO EL PULSO ACTUAL':'')+'.');if(L.length)B.push({t:'note',items:L})}
-  const im=inmunoTable(p,hc);if(im){B.push({t:'sub',x:'PERFIL INMUNOLÓGICO'},{t:'grid',...im})}
-  const tz=TAMIZ.filter(k=>(p.tamiz[k]||{}).r);if(tz.length){B.push({t:'sub',x:'TAMIZAJE PRE-INMUNOSUPRESIÓN'},{t:'grid',cols:['EXAMEN','RESULTADO','FECHA'],rows:tz.map(k=>[k,up(p.tamiz[k].r),fmtD(p.tamiz[k].f)])})}
+  const tz=TAMIZ.filter(k=>(p.tamiz[k]||{}).r);if(tz.length&&hc.tipo==='pulso'){B.push({t:'sub',x:'TAMIZAJE PRE-INMUNOSUPRESIÓN'},{t:'grid',cols:['EXAMEN','RESULTADO','FECHA'],rows:tz.map(k=>[k,up(p.tamiz[k].r),fmtD(p.tamiz[k].f)])})}
   if(p.biopsia.texto.trim()){B.push({t:'sub',x:'BIOPSIA RENAL'+(p.biopsia.fecha?' '+fmtD(p.biopsia.fecha):'')+':'});lines(p.biopsia.texto).forEach(l=>B.push({t:'p',x:l}))}
-  p.informes.filter(r=>r.titulo.trim()||r.texto.trim()).filter(r=>!r.fecha||r.fecha<=hc.fecha).sort((a,b)=>(b.fecha||'').localeCompare(a.fecha||'')).forEach(r=>{B.push({t:'sub',x:up(r.titulo)+(r.fecha?' '+fmtD(r.fecha):'')+':'});lines(r.texto).forEach(l=>B.push({t:'p',x:l}))});
+  const ids=selInfs(p,hc),inf=infsIn(p,hc).filter(r=>ids.includes(r.id));
+  if(inf.length){B.push({t:'sub',x:'IMÁGENES Y OTROS INFORMES'});inf.forEach(r=>B.push({t:'kp',k:up(r.titulo)+(r.fecha?' ('+fmtD(r.fecha)+')':'')+': ',x:(r.res||r.texto||'').trim()}))}
   T('EXAMEN FÍSICO GENERAL');B.push({t:'box',x:hc.exGen});const fv=hc.fv;
   B.push({t:'p',x:['PA: '+(fv.pa||'—')+' MMHG','FC: '+(fv.fc||'—')+' LPM','FR: '+(fv.fr||'—'),'SATO2: '+(fv.sat||'—')+'%','FIO2: '+(fv.fio2||'—'),fv.t&&('T°: '+fv.t+' °C'),fv.peso&&('PESO: '+fv.peso+' KG')].filter(Boolean).join('    '),b:true});
   T('EXAMEN FÍSICO REGIONAL');B.push({t:'kv',rows:EXSEG.map(([k,l])=>[l,hc.ex[k]||'']),wide:true});
@@ -123,16 +185,42 @@ function docBlocks(hc){
   return B;
 }
 function fmtG(mg){return (mg>=1000?(Math.round(mg/100)/10)+' G':mg+' MG')}
-function inmunoTable(p,hc){const rows=p.inmuno.filter(r=>r.fecha<=hc.fecha&&Object.values(r.items).some(Boolean)).sort((a,b)=>a.fecha.localeCompare(b.fecha));if(!rows.length)return null;
-  const keys=[];rows.forEach(r=>Object.keys(r.items).forEach(k=>{if(r.items[k]&&!keys.includes(k))keys.push(k)}));keys.sort((a,b)=>LABORDER.indexOf(a)-LABORDER.indexOf(b));
-  return {cols:['FECHA',...keys.map(k=>LABMAP[k]?LABMAP[k].n:k)],rows:rows.map(r=>[fmtD(r.fecha),...keys.map(k=>up(r.items[k]||''))])}}
+function vtabText(t){const out=[];t.cols.forEach(c=>{if(c.t==='p'){out.push('*** '+c.txt+' ***');return}
+  const v=t.keys.map(k=>{const x=t.val(k,c.f).v;return x?abbr(k)+' '+x+(PCT_K.includes(k)&&!/%$/.test(x)?'%':''):''}).filter(Boolean);if(v.length)out.push(fmtD(c.f)+': '+v.join(', '))});return out}
 function docText(hc){const out=[];docBlocks(hc).forEach(b=>{switch(b.t){
   case'title':out.push(b.x,'');break;case'h':out.push('',b.x);break;case'sub':out.push(b.x);break;case'p':out.push(b.x);break;case'kp':out.push(b.k+(b.x||''));break;
   case'box':out.push(b.x);break;case'bul':b.items.forEach(i=>out.push('  - '+i));break;case'num':b.items.forEach((i,n)=>out.push((n+1)+'. '+i));break;case'note':b.items.forEach(i=>out.push(i));break;
   case'kv':b.rows.forEach(([k,v])=>out.push(up(k)+': '+(v||'')));break;
-  case'lab':b.rows.forEach(r=>{if(r.t==='pulso')out.push('*** '+r.txt+' — '+r.sub+' ***');else{const v=b.cols.map((c,i)=>r.cells[i]?c+' '+r.cells[i]:'').filter(Boolean);out.push(fmtD(r.fecha)+': '+v.join(', ')+(r.nota?(v.length?'. ':'')+up(r.nota):'')+(v.length||r.nota?'.':''))}});break;
+  case'vtab':out.push(...vtabText(b.tb));break;
   case'grid':b.rows.forEach(r=>out.push(r.map((v,i)=>i?(b.cols[i]+': '+(v||'—')):v).join(' · ')));break}});
   return up(out.join('\n').replace(/\n{3,}/g,'\n\n'))}
+
+/* ---------- nota de ingreso ---------- */
+function niOf(hc){if(!hc.ni)hc.ni={basal:'',plan:'',ind:''};return hc.ni}
+const NIG=[['HEMOGRAMA + PCR',['hem','coag','inf']],['AZOADOS Y ELECTROLITOS',['ren']],['AGA',['aga']],['PROTEINURIAS',['r24']],['SEDIMENTO URINARIO',['ori']],['PERFIL HEPÁTICO',['hep']],['INMUNOLOGÍA Y SEROLOGÍAS',['inm','sero']],['OTROS',['lip','met','anem','tum','otr']]];
+function niText(hc){const p=DB.patients[hc.dni],A=p.ant,N=niOf(hc),L=[];const e=p.edad||edad(p.fnac,hc.fecha);const sx=/^F/.test(p.sexo||'')?'MUJER':/^M/.test(p.sexo||'')?'VARÓN':'';
+  const yy=(hc.fecha||'').slice(0,4);const dm=f=>f.slice(8)+'/'+f.slice(5,7)+(f.slice(0,4)!==yy?'/'+f.slice(2,4):'');const li=s=>lines(s).map(x=>/^[-•]/.test(x)?x.replace(/^[•]\s*/,'- '):'- '+x);
+  L.push('NOTA DE INGRESO A NEFROLOGÍA');
+  const f=['PACIENTE'+(sx?' '+sx:'')+(e?' DE '+e+' AÑOS':'')];
+  if(p.natural||p.procedencia)f.push(p.natural&&p.procedencia?'NATURAL DE '+p.natural+' Y PROCEDENTE DE '+p.procedencia:(p.natural?'NATURAL DE '+p.natural:'PROCEDENTE DE '+p.procedencia));
+  if(p.ocupacion)f.push('OCUPACIÓN '+p.ocupacion);if(p.civil)f.push('ESTADO CIVIL '+p.civil);if(p.religion)f.push('RELIGIÓN '+p.religion);
+  L.push(f.join(', ')+'.'+(N.basal.trim()?' ESTADO BASAL '+dot(N.basal.trim().replace(/^ESTADO BASAL:?\s*/i,'')):''));
+  L.push('ANTECEDENTES:');const med=[...ENFS.filter(x=>A.enf[x]==='SÍ'),...lines(A.otras)];L.push('MÉDICOS: '+(med.length?dot(med.join(', ')):'NIEGA.'));
+  const qx=[...lines(A.quir),...(A.proc||[]).filter(x=>x.n.trim()).map(x=>x.n.trim()+(x.d.trim()?' ('+x.d.trim()+')':'')+(x.f.trim()?' '+x.f.trim():''))];L.push('QUIRÚRGICOS: '+(qx.length?qx.map(dot).join(' '):'NIEGA.'));
+  L.push('HOSPITALIZACIONES: '+(lines(A.hosp).length?lines(A.hosp).map(dot).join(' '):'NIEGA.'));L.push('ALERGIAS: '+dot(A.alerg||'NIEGA'));
+  if(A.transf.trim())L.push('TRANSFUSIONES: '+dot(A.transf));L.push('MEDICACIÓN HABITUAL: '+(lines(A.med).length?lines(A.med).map(dot).join(' '):'NIEGA.'));
+  L.push('HISTORIA DE LA ENFERMEDAD:');const te=[hc.tiempo&&'TIEMPO DE ENFERMEDAD: '+dot(hc.tiempo),hc.sintomas&&'SÍNTOMAS PRINCIPALES: '+dot(hc.sintomas)].filter(Boolean);if(te.length)L.push(te.join(' '));if(hc.hea.trim())L.push(hc.hea.trim());
+  const fv=hc.fv;L.push('AL EXAMEN FÍSICO');L.push([fv.pa&&'PA: '+fv.pa+' MMHG',fv.fc&&'FC: '+fv.fc+' LPM',fv.fr&&'FR: '+fv.fr+' RPM',fv.t&&'T°: '+fv.t+' °C',fv.sat&&'SATO2: '+fv.sat+'%',fv.fio2&&'FIO2: '+fv.fio2,fv.peso&&'PESO: '+fv.peso+' KG'].filter(Boolean).join(', ')||'PA: —');
+  L.push('GENERAL: '+dot(hc.exGen));EXSEG.forEach(([k,l])=>{if((hc.ex[k]||'').trim())L.push(l+': '+dot(hc.ex[k]))});
+  const keys=selKeys(p,hc),M=labMap(p,hc.fecha),ex=[];
+  NIG.forEach(([t,cs])=>{const ks=keys.filter(k=>cs.includes(catOf(k))).sort(keyCmp);if(!ks.length)return;const ds=selDates(p,hc,ks).reverse();if(!ds.length)return;ex.push(t+':');
+    ds.forEach(f=>ex.push(dm(f)+': '+ks.filter(k=>M[f].items[k]).map(k=>abbr(k)+' '+M[f].items[k]+(PCT_K.includes(k)&&!/%$/.test(M[f].items[k])?'%':'')).join(' ')))});
+  if(p.biopsia.texto.trim())ex.push('BIOPSIA RENAL'+(p.biopsia.fecha?' '+dm(p.biopsia.fecha):'')+': '+dot(lines(p.biopsia.texto)[0]));
+  const ids=selInfs(p,hc),inf=infsIn(p,hc).filter(r=>ids.includes(r.id));if(inf.length){ex.push('IMÁGENES:');inf.forEach(r=>ex.push(up(r.titulo)+(r.fecha?' '+dm(r.fecha):'')+': '+dot((r.res||r.texto||'').trim())))}
+  if(ex.length)L.push('EXÁMENES AUXILIARES:',...ex);
+  L.push('PROBLEMAS:',...(lines(hc.dx).length?lines(hc.dx).map(x=>'- '+x.replace(/^\s*\d+\s*[.)\-]*\s*/,'')):['-']));
+  L.push('PLAN:',...(li(N.plan).length?li(N.plan):['-']));L.push('INDICACIONES:',...(li(N.ind).length?li(N.ind):['-']));
+  return up(L.join('\n'))}
 
 /* ---------- navegación / estado ---------- */
 let R={v:'inicio',hid:null,tab:null,q:'',modo:null};let CUR=null,saveT=null;
@@ -152,12 +240,13 @@ APP.addEventListener('input',onInput);APP.addEventListener('change',onInput);APP
 function onInput(ev){const t=ev.target;if(!CUR||!CUR.hc)return;if(ev.type==='change'&&t.tagName!=='SELECT'&&t.type!=='checkbox'&&t.type!=='date'&&t.type!=='file')return;const d=t.dataset;
   if(d.p){const[o,p]=resolve(d.p);setP(o,p,t.type==='checkbox'?t.checked:(d.up!=null?up(t.value):t.value));if(d.p==='p.fnac'){const e=edad(t.value,CUR.hc.fecha);DB.patients[CUR.hc.dni].edad=e;const ei=$('[data-p="p.edad"]');if(ei)ei.value=e}return touch()}
   const p=DB.patients[CUR.hc.dni];
-  if(d.lab){const L=p.labs.find(l=>l.id===d.lab);if(d.k==='fecha')L.fecha=t.value;else if(d.k==='nota')L.nota=up(t.value);else L.items[d.k]=up(t.value).trim();return touch()}
-  if(d.pul){const x=p.pulsos.find(y=>y.id===d.pul);x[d.k]=d.k==='esquema'||d.k==='nota'?up(t.value):t.value;return touch()}
-  if(d.inm){const r=p.inmuno.find(y=>y.id===d.inm);if(d.k==='fecha')r.fecha=t.value;else r.items[d.k]=up(t.value);return touch()}
+  if(d.lab){const L=p.labs.find(l=>l.id===d.lab);if(d.k==='fecha')L.fecha=t.value;else if(d.k==='nota')L.nota=up(t.value);else{L.items[d.k]=up(t.value).trim();if(L.fl&&!L.items[d.k])delete L.fl[d.k]}touch();if(d.k==='fecha'&&ev.type==='change')rerender();return}
+  if(d.sel){const S=selOf(CUR.hc);if(d.sel==='desde'){if(ev.type!=='change')return;S.desde=t.value}else if(d.sel==='pul')S.pul=t.checked;touch();return rerender()}
+  if(d.selinf){const S=selOf(CUR.hc);if(!S.infs)S.infs=selInfs(p,CUR.hc);S.infs=t.checked?[...new Set([...S.infs,d.selinf])]:S.infs.filter(x=>x!==d.selinf);touch();return rerender()}
+  if(d.pul){const x=p.pulsos.find(y=>y.id===d.pul);x[d.k]=d.k==='esquema'||d.k==='nota'?up(t.value):d.k==='num'?t.value.replace(/\D/g,''):t.value;touch();if(ev.type==='change'&&(d.k==='fi'||d.k==='num'))rerender();return}
   if(d.tz){p.tamiz[d.tz]=p.tamiz[d.tz]||{r:'',f:''};p.tamiz[d.tz][d.k]=d.k==='r'?up(t.value):t.value;return touch()}
   if(d.proc){const x=(p.ant.proc||[]).find(y=>y.id===d.proc);x[d.k]=up(t.value);return touch()}
-  if(d.inf){const r=p.informes.find(y=>y.id===d.inf);r[d.k]=d.k==='fecha'?t.value:up(t.value);return touch()}
+  if(d.inf){const r=p.informes.find(y=>y.id===d.inf);r[d.k]=d.k==='img'?t.checked:d.k==='fecha'?t.value:up(t.value);return touch()}
 }
 async function onClick(ev){const b=ev.target.closest('button');if(!b||!b.dataset.act)return;const d=b.dataset,a=d.act;
   if(a==='tab'){R.tab=d.tab;return render()}if(CUR&&CUR.click)return CUR.click(a,d,b)}
@@ -193,12 +282,12 @@ function createPatient(){const dni=$('#nDni').value.trim().replace(/\s/g,''),nom
 function startHC(dni){const hc=newHC(dni,R.modo);DB.hcs[hc.id]=hc;save();go('hc',{hid:hc.id,tab:hc.prevId?(hc.tipo==='pulso'?'pulsos':'anam'):'fil'})}
 
 /* ---- Editor de HC ---- */
-function tabsFor(hc){return [['fil','Filiación'],['anam','Anamnesis'],['ant','Antecedentes'],['labs','Laboratorio'],...(hc.tipo==='pulso'?[['pulsos','Pulsos']]:[]),['inm','Inmuno y tamizaje'],['inf','Biopsia e informes'],['ex','Examen'],['dx','Diagnóstico'],['doc','Documento']]}
+function tabsFor(hc){return [['fil','Filiación'],['anam','Anamnesis'],['ant','Antecedentes'],['labs','Laboratorio'],...(hc.tipo==='pulso'?[['pulsos','Pulsos']]:[]),['inm','Tamizaje'],['inf','Biopsia e informes'],['ex','Examen'],['dx','Diagnóstico'],['doc','Documento'],['ni','Nota de ingreso']]}
 function missing(hc){const p=DB.patients[hc.dni],M=[];if(!hc.hea.trim())M.push('Historia de la enfermedad');if(!hc.fv.pa)M.push('Funciones vitales');if(!lines(hc.dx).length)M.push('Impresión diagnóstica');
   if(!p.labs.length)M.push('Laboratorio');if(hc.tipo==='pulso'){const act=p.pulsos.find(x=>x.id===hc.pulsoId);if(act&&!act.esquema.trim())M.push('Esquema del pulso actual');
     const tz=TAMIZ.slice(0,5).filter(k=>!(p.tamiz[k]||{}).r);if(tz.length)M.push('Tamizaje: '+tz.join(', '))}return M}
 function vHC(){const hc=DB.hcs[R.hid];if(!hc){R.v='inicio';return vInicio()}const p=DB.patients[hc.dni];const tab=R.tab||'fil';
-  CUR={hc,preview(){const el=$('#prev');if(el)el.textContent=docText(hc)},click:hcClick,mount(){bar(`<button class="btn" onclick="go('inicio')">← Inicio</button><button class="btn pri" onclick="exportWord('${hc.id}')">Word</button><button class="btn" onclick="exportTxt('${hc.id}')">TXT</button>`);if(tab==='labs')mountLabImport()}};
+  CUR={hc,preview(){const el=$('#prev');if(el)el.textContent=docText(hc);const ni=$('#niprev');if(ni)ni.textContent=niText(hc);const lt=$('#ltprev');if(lt)lt.innerHTML=labPreviewHTML(p,hc)},click:hcClick,mount(){bar(`<button class="btn" onclick="go('inicio')">← Inicio</button><button class="btn pri" onclick="exportWord('${hc.id}')">Word</button><button class="btn" onclick="exportTxt('${hc.id}')">TXT</button>`);if(tab==='labs')mountLabImport()}};
   const M=missing(hc);
   const head=`<div class="card"><div class="pt"><div><div class="nm">${esc(p.nombre)}</div><div class="muted">DNI ${esc(p.dni)} · HC ${hc.tipo==='pulso'?'💉 PULSO':'🩺 GENERAL'} · ${fmtD(hc.fecha)}</div></div>
    <span class="badge ${M.length?'b-pend':'b-copy'}" title="${esc(M.join(', '))}">${M.length?'Faltan '+M.length:'Completa'}</span></div>${M.length?`<div class="muted" style="margin-top:6px">Falta: ${esc(M.join(' · '))}</div>`:''}</div>
@@ -218,6 +307,7 @@ function vHC(){const hc=DB.hcs[R.hid];if(!hc){R.v='inicio';return vInicio()}cons
   if(tab==='ant'){const A=p.ant;body=`<div class="card"><h3>Antecedentes personales</h3><div class="grid w2">${F('p.ant.parto','Parto','data-up')}${F('p.ant.inmun','Inmunizaciones','data-up')}${F('p.ant.covid','Vacunas COVID','data-up placeholder="2 DOSIS"')}</div></div>
    <div class="card"><h3>Enfermedades médicas previas</h3><div class="row">${ENFS.map(e=>`<div class="seg"><span style="padding:10px 10px;font-weight:600">${e}</span>${['NO','SÍ'].map(v=>`<button class="${(A.enf[e]||'NO')===v?'on':''}" data-act="enf" data-e="${e}" data-v="${v}">${v}</button>`).join('')}</div>`).join('')}</div>
    <div style="margin-top:10px">${TA('p.ant.otras','Otras (una por línea)',4,'HIPERPLASIA BENIGNA DE PRÓSTATA\nLITIASIS RENAL')}</div></div>
+   <div class="card"><h3>Hospitalizaciones previas</h3>${TA('p.ant.hosp','Una por línea (fecha + motivo)',4,'04/2026: NEUMONÍA\n2025: PERITONITIS EN 02 OPORTUNIDADES')}</div>
    <div class="card"><h3>Procedimientos previos</h3>${(A.proc||[]).map(x=>`<div class="grid" style="grid-template-columns:150px 1fr 1fr auto;align-items:end;margin-bottom:6px"><div><label>Fecha / tiempo</label><input data-proc="${x.id}" data-k="f" value="${esc(x.f)}" placeholder="03/2024 · HACE 5 AÑOS" style="text-transform:uppercase"></div>
      <div><label>Procedimiento</label><input data-proc="${x.id}" data-k="n" value="${esc(x.n)}" style="text-transform:uppercase"></div><div><label>Detalle / resultado</label><input data-proc="${x.id}" data-k="d" value="${esc(x.d)}" placeholder="YUGULAR DER. / RETIRADO / GMN MEMBRANOSA" style="text-transform:uppercase"></div>
      <button class="btn sm bad" data-act="procDel" data-id="${x.id}">✕</button></div>`).join('')||'<div class="muted">Ninguno registrado.</div>'}
@@ -227,10 +317,11 @@ function vHC(){const hc=DB.hcs[R.hid];if(!hc){R.v='inicio';return vInicio()}cons
   if(tab==='labs')body=labsTab(hc,p);
   if(tab==='pulsos')body=pulsosTab(hc,p);
   if(tab==='inm')body=inmTab(hc,p);
+  if(tab==='ni')body=niTab(hc,p);
   if(tab==='inf')body=`<div class="card"><h3>Biopsia renal</h3><div class="grid"><div><label>Fecha</label><input type="date" data-p="p.biopsia.fecha" value="${esc(p.biopsia.fecha)}"></div></div>
    <div style="margin-top:8px">${TA('p.biopsia.texto','Informe (pégalo completo: diagnóstico, microscopía, histoquímica, IF, nota)',10)}</div></div>
-   <div class="card"><h3>Imágenes y otros informes</h3>${p.informes.map(r=>`<div class="dx"><div class="grid w2"><div><label>Título</label><input data-inf="${r.id}" data-k="titulo" value="${esc(r.titulo)}" style="text-transform:uppercase" placeholder="ECOGRAFÍA RENAL"></div><div><label>Fecha</label><input type="date" data-inf="${r.id}" data-k="fecha" value="${esc(r.fecha)}"></div></div>
-     <label style="margin-top:8px">Resultado</label><textarea data-inf="${r.id}" data-k="texto" rows="4">${esc(r.texto)}</textarea><div class="row" style="margin-top:6px"><span class="sp"></span><button class="btn sm bad" data-act="infDel" data-id="${r.id}">Quitar</button></div></div>`).join('')||'<div class="muted">Sin informes.</div>'}
+   <div class="card"><h3>Imágenes y otros informes</h3><p class="muted" style="margin-top:0">Cuáles salen en la HC se elige en Laboratorio → paso 2.</p>${p.informes.map(r=>`<div class="dx"><div class="grid w2"><div><label>Título</label><input data-inf="${r.id}" data-k="titulo" value="${esc(r.titulo)}" style="text-transform:uppercase" placeholder="ECOGRAFÍA RENAL"></div><div><label>Fecha</label><input type="date" data-inf="${r.id}" data-k="fecha" value="${esc(r.fecha)}"></div></div>
+     <label class="chk" style="margin-top:8px"><input type="checkbox" data-inf="${r.id}" data-k="img" ${r.img?'checked':''}> Es imagen</label><label style="margin-top:8px">Resultado completo</label><textarea data-inf="${r.id}" data-k="texto" rows="4">${esc(r.texto)}</textarea><label style="margin-top:8px">Resumen para la HC (vacío = completo)</label><textarea data-inf="${r.id}" data-k="res" rows="2">${esc(r.res||'')}</textarea><div class="row" style="margin-top:6px"><span class="sp"></span><button class="btn sm bad" data-act="infDel" data-id="${r.id}">Quitar</button></div></div>`).join('')||'<div class="muted">Sin informes.</div>'}
    <button class="btn sm" style="margin-top:8px" data-act="infAdd">+ Agregar informe</button></div>`;
   if(tab==='ex')body=`<div class="card"><h3>Examen físico general</h3>${TA('exGen','',3)}<div class="grid" style="margin-top:10px">${F('fv.pa','PA (mmHg)','placeholder="120/80"')}${F('fv.fc','FC (lpm)',NUM)}${F('fv.fr','FR (rpm)',NUM)}${F('fv.sat','SatO2 (%)',NUM)}${F('fv.fio2','FiO2',NUM)}${F('fv.t','T° (°C)',NUM)}${F('fv.peso','Peso (kg)',NUM)}</div></div>
    <div class="card"><h3>Examen físico regional</h3><p class="muted" style="margin-top:0">${hc.prevId?'Viene de la HC anterior.':'Viene con el texto normal.'} Edita solo lo anormal.</p>
@@ -245,60 +336,107 @@ async function hcClick(a,d){const hc=CUR.hc,p=DB.patients[hc.dni];
   if(a==='exReset'){hc.ex[d.k]=DB.settings.ex[d.k];return done()}
   if(a==='copy')return copyText(docText(hc)).then(o=>toast(o?'HC copiada':'No se pudo copiar'));
   if(a==='delHC')return delHC(hc.id);
-  if(a==='labAdd'){p.labs.push({id:uid(),fecha:hc.fecha,items:{},nota:'',created:Date.now()});return done()}
+  if(a==='labAdd'){p.labs.push({id:uid(),fecha:hc.fecha,items:{},fl:{},nota:'',created:Date.now()});return done()}
+  if(a==='labKey'){const L=p.labs.find(l=>l.id===d.id),k=$('#ak_'+d.id).value;if(k&&L.items[k]==null)L.items[k]='';return done()}
+  if(a==='lastOk'){LS.last=null;return rerender()}
+  if(a==='selPreset'){const S=selOf(hc);S.preset=d.v;S.keys=null;S.infs=null;S.off=[];return done()}
+  if(a==='selKey'){const S=selOf(hc);if(!S.keys)S.keys=selKeys(p,hc);S.keys=S.keys.includes(d.k)?S.keys.filter(k=>k!==d.k):[...S.keys,d.k];return done()}
+  if(a==='selCat'){const S=selOf(hc);const cur=selKeys(p,hc),ks=presentKeys(p,hc).filter(k=>catOf(k)===d.c);S.keys=ks.every(k=>cur.includes(k))?cur.filter(k=>!ks.includes(k)):[...new Set([...cur,...ks])];return done()}
+  if(a==='selDate'){const S=selOf(hc);S.off=S.off.includes(d.f)?S.off.filter(x=>x!==d.f):[...S.off,d.f];return done()}
+  if(a==='niCopy')return copyText(niText(hc)).then(o=>toast(o?'Nota de ingreso copiada':'No se pudo copiar'));
+  if(a==='niTxt')return exportNiTxt(hc.id);
   if(a==='labDel'){if(!await ask('¿Eliminar esta fila?'))return;p.labs=p.labs.filter(l=>l.id!==d.id);return done()}
-  if(a==='colAdd'){const c=$('#colSel').value;if(c&&!p.cols[hc.tipo].includes(c))p.cols[hc.tipo].push(c);return done()}
-  if(a==='colDel'){p.cols[hc.tipo]=p.cols[hc.tipo].filter(c=>c!==d.c);return done()}
-  if(a==='colAuto'){const L=p.cols[hc.tipo];outOfCols(p,hc).forEach(k=>{const c=suggestCol(k);if(c&&!L.includes(c))L.push(c)});return done()}
-  if(a==='colReset'){p.cols[hc.tipo]=PRESET[hc.tipo].slice();return done()}
-  if(a==='colUp'){const L=p.cols[hc.tipo],i=L.indexOf(d.c);if(i>0)[L[i-1],L[i]]=[L[i],L[i-1]];return done()}
   if(a==='pulAdd'){p.pulsos.push({id:uid(),fi:'',ff:'',esquema:'',cfm:'',nota:'',created:Date.now()});return done()}
   if(a==='pulDel'){if(d.id===hc.pulsoId)return toast('Es el pulso de esta HC; no se puede quitar aquí');if(!await ask('¿Eliminar este pulso?'))return;p.pulsos=p.pulsos.filter(x=>x.id!==d.id);return done()}
   if(a==='esq'){const x=p.pulsos.find(y=>y.id===d.id);const v=d.v;x.esquema=up((v.startsWith('+')?(x.esquema.trim()+' '+v):(x.esquema.trim()?x.esquema.trim()+' + '+v:v)).trim());const m=v.match(/CICLOFOSFAMIDA (\d+(?:\.\d+)?) ?(G|MG)/);if(m&&!x.cfm)x.cfm=String(m[2]==='G'?parseFloat(m[1])*1000:m[1]);return done()}
-  if(a==='inmAdd'){p.inmuno.push({id:uid(),fecha:hc.fecha,items:{},created:Date.now()});return done()}
-  if(a==='inmDel'){p.inmuno=p.inmuno.filter(r=>r.id!==d.id);return done()}
-  if(a==='inmKey'){const r=p.inmuno.find(y=>y.id===d.id),k=$('#ik_'+d.id).value;if(k&&r.items[k]==null)r.items[k]='';return done()}
   if(a==='procAdd'){p.ant.proc=p.ant.proc||[];p.ant.proc.push({id:uid(),f:'',n:d.v||'',d:''});return done()}
   if(a==='procDel'){p.ant.proc=(p.ant.proc||[]).filter(x=>x.id!==d.id);return done()}
-  if(a==='infAdd'){p.informes.push({id:uid(),titulo:'',fecha:'',texto:'',created:Date.now()});return done()}
+  if(a==='infAdd'){p.informes.push({id:uid(),titulo:'',fecha:'',texto:'',res:'',img:true,created:Date.now()});return done()}
   if(a==='infDel'){if(!await ask('¿Quitar este informe?'))return;p.informes=p.informes.filter(r=>r.id!==d.id);return done()}
   if(a==='parse'){LS.text=$('#ltext').value;const r=parseLabs(LS.text,LS.fecha||hc.fecha);LS.rows=r.rows.map(x=>({...x,on:true}));LS.unk=r.unk;rerender();if(!LS.rows.length)toast('No reconocí resultados');return}
-  if(a==='lclear'){LS={text:'',rows:null,unk:[],fecha:hc.fecha,busy:''};return rerender()}
+  if(a==='lclear'){LS={text:'',rows:null,unk:[],fecha:hc.fecha,busy:'',last:null};return rerender()}
   if(a==='lclaude'){return copyText(CLAUDE_PROMPT+anonLabText($('#ltext').value)).then(o=>toast(o?'Copiado sin nombre/DNI. Pega la respuesta de Claude en el cuadro':'No se pudo copiar'))}
-  if(a==='lsave'){const rows=(LS.rows||[]).filter(r=>r.on&&r.v.trim()&&r.fecha),tx=(LS.texts||[]).filter(t=>t.on);if(!rows.length&&!tx.length)return toast('Nada que guardar');let n=0;
-    tx.forEach(t=>{const T=t.onlyC&&t.concl?t.concl:t.texto;const ex=p.informes.find(i=>i.fecha===t.fecha&&deacc(i.titulo)===deacc(t.titulo));if(ex)ex.texto=T;else p.informes.push({id:uid(),titulo:t.titulo,fecha:t.fecha,texto:T,created:Date.now()})});
-    const TZK={HBSAG:'HBSAG',HBC:'ANTI-HBC TOTAL',HBS:'ANTI-HBS',VHC:'ANTI-VHC',VIH:'VIH',VDRL:'VDRL / RPR'};
-    rows.forEach(r=>{const area=LABMAP[r.k]?LABMAP[r.k].a:'OTROS';if(TZK[r.k]){p.tamiz[TZK[r.k]]={r:up(r.v),f:r.fecha};n++;return}if(area==='INMUNO'){let I=p.inmuno.find(x=>x.fecha===r.fecha);if(!I){I={id:uid(),fecha:r.fecha,items:{},created:Date.now()};p.inmuno.push(I)}I.items[r.k]=up(r.v);n++;return}
-      let L=p.labs.find(x=>x.fecha===r.fecha);if(!L){L={id:uid(),fecha:r.fecha,items:{},nota:'',created:Date.now()};p.labs.push(L)}L.items[r.k]=up(r.v);n++});
-    LS={text:'',rows:null,unk:[],fecha:LS.fecha,busy:''};toast(n+' valores'+(tx.length?' y '+tx.length+' informe(s) (pestaña Biopsia e informes)':'')+' guardados');const o=outOfCols(p,hc);if(o.length)setTimeout(()=>toast('Hay valores sin columna: '+o.map(k=>LABMAP[k].n).join(', ')),2400);return done()}
+  if(a==='lsave'){const rows=(LS.rows||[]).filter(r=>r.on&&String(r.v).trim()&&r.fecha),tx=(LS.texts||[]).filter(t=>t.on);if(!rows.length&&!tx.length)return toast('Nada que guardar');
+    const r=saveLabRows(p,rows,tx);LS={text:'',rows:null,unk:[],fecha:LS.fecha,busy:'',last:null};toast(r.n+' valores'+(tx.length?' y '+tx.length+' informe(s)':'')+' guardados. Elige abajo qué sale en la HC');return done()}
 }
 
-/* ---- pestaña Laboratorio ---- */
-let LS={text:'',rows:null,unk:[],fecha:null,busy:''};
-function labsTab(hc,p){if(!LS.fecha)LS.fecha=hc.fecha;const cols=p.cols[hc.tipo];const keys=cols.flatMap(c=>COLDEF[c].k.map(k=>({c,k})));
-  const labs=p.labs.slice().sort((a,b)=>hc.tipo==='pulso'?a.fecha.localeCompare(b.fecha):b.fecha.localeCompare(a.fecha));const oc=outOfCols(p,hc);
-  const opts=LABDEF.map(d=>`<option value="${d[0]}">${d[1]} · ${AREAS[d[2]]}</option>`).join('');
-  return `<div class="card"><h3>Importar análisis</h3><div class="row"><label class="btn" style="margin:0;color:var(--ink);font-size:16px">📷 Leer fotos<input id="lfotos" type="file" accept="image/*" multiple style="display:none"></label>
-   <label class="btn" style="margin:0;color:var(--ink);font-size:16px">📄 Subir PDF<input id="lpdf" type="file" accept="application/pdf" multiple style="display:none"></label><span class="muted">o pega el texto</span></div>
+/* ---- pestaña Laboratorio: 1 subir · 2 elegir · 3 tabla ---- */
+let LS={text:'',rows:null,unk:[],fecha:null,busy:'',last:null};
+function labsTab(hc,p){if(!LS.fecha)LS.fecha=hc.fecha;const S=selOf(hc);const M=labMap(p,hc.fecha);
+  const fechas=Object.keys(M).filter(f=>!S.desde||f>=S.desde).sort().reverse();const pk=presentKeys(p,hc),keys=selKeys(p,hc),ids=selInfs(p,hc),infs=infsIn(p,hc);
+  const opts=LABDEF.map(d=>`<option value="${d[0]}">${d[1]} · ${AREAS[d[2]]}</option>`).join('');const lst=LS.last;
+  const s1=`<div class="card"><h3>1 · Subir resultados</h3><p class="muted" style="margin-top:0">PDF del ESSI: se leen y se guardan solos, con la <b>fecha de resultado</b> y los valores fuera de rango marcados (salen en negrita). Puedes subir varios a la vez.</p>
+   <div class="row"><label class="btn pri" style="margin:0;font-size:16px;color:var(--pri-ink)">📄 PDF del ESSI<input id="lpdf" type="file" accept="application/pdf" multiple style="display:none"></label>
+   <label class="btn" style="margin:0;color:var(--ink);font-size:16px">📷 Fotos<input id="lfotos" type="file" accept="image/*" multiple style="display:none"></label></div>
    <div id="lbusy" class="muted" style="margin-top:8px">${esc(LS.busy)}</div><div class="prog" ${LS.busy?'':'hidden'}><i id="lprog"></i></div>
+   ${lst?`<div class="alert a-info" style="margin-top:8px">✓ ${lst.ne} PDF: <b>${lst.n} valores</b> guardados${lst.fechas.length?' ('+lst.fechas.length+' fecha(s): '+fmtD(lst.fechas[0])+(lst.fechas.length>1?' → '+fmtD(lst.fechas[lst.fechas.length-1]):'')+')':''}${lst.texts?' · '+lst.texts+' informe(s)':''}.
+     ${lst.pend.length?`<br>Aún sin resultado: ${esc(lst.pend.map(x=>x.titulo).join(', '))}.`:''}${lst.unk.length?`<details style="margin-top:4px"><summary>No reconocidos (${lst.unk.length})</summary><pre class="note">${esc(lst.unk.join('\n'))}</pre></details>`:''}
+     <button class="link" data-act="lastOk">Ocultar</button></div>`:''}
+   <details style="margin-top:10px" ${LS.text||LS.rows?'open':''}><summary>Pegar texto (otro laboratorio, foto, Texto en vivo)</summary>
    <div class="grid" style="margin-top:8px"><div><label>Fecha si el texto no trae</label><input id="lfecha" type="date" value="${LS.fecha}"></div></div>
    <textarea id="ltext" rows="6" style="margin-top:8px" placeholder="Pega aquí los resultados…">${esc(LS.text)}</textarea>
    <div class="row" style="margin-top:8px"><button class="btn pri" data-act="parse">Procesar</button><button class="btn" data-act="lclear">Limpiar</button><span class="sp"></span><button class="btn sm" data-act="lclaude">Copiar para Claude (sin nombre/DNI)</button></div>
    ${LS.rows||LS.texts?`<h4>Revisar (${(LS.rows||[]).length} valores)</h4><table class="rev"><tr><th></th><th>Fecha</th><th>Examen</th><th>Valor</th></tr>${(LS.rows||[]).map((r,i)=>`<tr><td><input type="checkbox" ${r.on?'checked':''} onchange="LS.rows[${i}].on=this.checked"></td><td><input type="date" value="${r.fecha}" onchange="LS.rows[${i}].fecha=this.value"></td>
     <td><select onchange="LS.rows[${i}].k=this.value">${opts.replace(`value="${r.k}"`,`value="${r.k}" selected`)}</select></td><td><input value="${esc(r.v)}" oninput="LS.rows[${i}].v=this.value"></td></tr>`).join('')}</table>
     ${revExtraHTML(LS,'LS','Solo informativo: aún no tienen resultado.')}
-    <div class="row" style="margin-top:8px"><button class="btn pri" data-act="lsave">Guardar en la tabla</button></div>${(LS.unk||[]).length?`<details style="margin-top:8px"><summary>No reconocidas (${LS.unk.length})</summary><pre class="note">${esc(LS.unk.join('\n'))}</pre></details>`:''}`:''}</div>
-  <div class="card"><div class="pt"><h3 style="margin:0">Tabla · ${hc.tipo==='pulso'?'Pulsos (cronológico)':'General (más reciente primero)'}</h3><button class="btn sm pri" data-act="labAdd">+ Fila</button></div>
-   <div class="row" style="margin:10px 0">${cols.map(c=>`<span class="badge b-ok" style="font-size:13px">${COLDEF[c].l} <button class="link" data-act="colUp" data-c="${c}">◀</button><button class="link" data-act="colDel" data-c="${c}">✕</button></span>`).join('')}</div>
-   <div class="row"><select id="colSel" style="width:220px"><option value="">+ Agregar columna…</option>${Object.keys(COLDEF).filter(c=>!cols.includes(c)).map(c=>`<option value="${c}">${COLDEF[c].l}</option>`).join('')}</select><button class="btn sm" data-act="colAdd">Agregar</button><button class="btn sm" data-act="colReset">Columnas del modelo</button></div>
-   ${oc.length?`<div class="alert a-warn" style="margin-top:10px">Valores guardados sin columna: ${esc(oc.map(k=>LABMAP[k].n+(suggestCol(k)?' (columna '+COLDEF[suggestCol(k)].l+')':'')).join(', '))}. Agrégalas si quieres que salgan. <button class="btn sm pri" data-act="colAuto">Agregar columnas para todo</button></div>`:''}
-   <div style="overflow-x:auto;margin-top:10px"><table class="rev"><tr><th>Fecha</th>${keys.map(o=>`<th>${COLDEF[o.c].k.length>1?(LABMAP[o.k]?LABMAP[o.k].n:o.k):COLDEF[o.c].l}</th>`).join('')}<th>Nota</th><th></th></tr>
-   ${labs.map(l=>`<tr><td><input type="date" data-lab="${l.id}" data-k="fecha" value="${l.fecha}" style="min-width:130px"></td>${keys.map(o=>`<td><input data-lab="${l.id}" data-k="${o.k}" value="${esc(l.items[o.k]||'')}" style="min-width:64px;text-transform:uppercase"></td>`).join('')}
-    <td><input data-lab="${l.id}" data-k="nota" value="${esc(l.nota||'')}" style="min-width:180px;text-transform:uppercase" placeholder="p. ej. 6.9 G/24H / DEP. CREAT 106"></td><td><button class="btn sm bad" data-act="labDel" data-id="${l.id}">✕</button></td></tr>`).join('')}</table></div>
-   ${labs.length?'':'<div class="muted">Sin filas. Importa o agrega una.</div>'}<p class="muted">La nota sale como fila completa debajo de esa fecha (como “MICROALBUMINURIA…” en el modelo).</p></div>`}
+    <div class="row" style="margin-top:8px"><button class="btn pri" data-act="lsave">Guardar</button></div>${(LS.unk||[]).length?`<details style="margin-top:8px"><summary>No reconocidas (${LS.unk.length})</summary><pre class="note">${esc(LS.unk.join('\n'))}</pre></details>`:''}`:''}</details></div>`;
+  const pre=Object.keys(PRESETS).map(k=>`<button class="btn ${S.preset===k&&!S.keys&&!S.infs?'pri':''}" data-act="selPreset" data-v="${k}" title="${esc(PRESETS[k].d)}">${PRESETS[k].n}</button>`).join('');
+  const cats=CATS.map(([c,n])=>{const ks=pk.filter(k=>catOf(k)===c);if(!ks.length)return'';const all=ks.every(k=>keys.includes(k));
+    return `<div class="dx"><div class="pt"><b>${n}</b><button class="link" data-act="selCat" data-c="${c}">${all?'Quitar todos':'Elegir todos'}</button></div><div class="chips" style="margin-top:6px">${ks.map(k=>{const nd=Object.keys(M).filter(f=>(!S.desde||f>=S.desde)&&M[f].items[k]).length;
+      return `<button class="chip ${keys.includes(k)?'on':''}" data-act="selKey" data-k="${k}">${esc(rlab(k).replace(/\s*\(.*\)$/,''))} <span class="cnt">${nd}</span></button>`}).join('')}</div></div>`}).join('');
+  const s2=`<div class="card"><h3>2 · Elegir qué va en la HC</h3>
+   <div class="row">${pre}<span class="sp"></span><div><label>Desde</label><input type="date" data-sel="desde" value="${esc(S.desde)}" style="width:170px"></div></div>
+   ${p.pulsos.some(x=>x.fi)?`<label class="chk" style="margin-top:10px"><input type="checkbox" data-sel="pul" ${S.pul?'checked':''}> Columnas amarillas de los pulsos en la tabla</label>`:''}
+   <h4>Fechas ${fechas.length?`<span class="muted">(toca para quitar/poner)</span>`:''}</h4>${fechas.length?`<div class="chips">${fechas.map(f=>`<button class="chip ${S.off.includes(f)?'':'on'}" data-act="selDate" data-f="${f}">${fmtD(f)}</button>`).join('')}</div>`:'<div class="muted">Aún no hay análisis guardados.</div>'}
+   ${pk.length?`<h4>Exámenes</h4>${cats}`:''}
+   ${infs.length?`<h4>Imágenes e informes</h4>${infs.map(r=>{const on=ids.includes(r.id);return `<div class="dx"><label class="chk"><input type="checkbox" data-selinf="${r.id}" ${on?'checked':''}> <b>${esc(r.titulo||'(sin título)')}</b> <span class="muted">${fmtD(r.fecha)}</span></label>
+     ${on?`<label style="margin-top:6px">Resumen que va en la HC</label><textarea data-inf="${r.id}" data-k="res" rows="2" placeholder="Vacío = texto completo">${esc(r.res||'')}</textarea><details><summary class="muted">Texto completo</summary><pre class="note">${esc(r.texto)}</pre></details>`:''}</div>`}).join('')}`:''}</div>`;
+  const s3=`<div class="card"><h3>3 · Tabla para la HC</h3><div id="ltprev">${labPreviewHTML(p,hc)}</div>
+   <details style="margin-top:12px"><summary>Editar valores guardados (${p.labs.length} fecha(s))</summary><div class="row" style="margin:8px 0"><button class="btn sm pri" data-act="labAdd">+ Fecha</button></div>
+   ${p.labs.slice().sort((a,b)=>b.fecha.localeCompare(a.fecha)).map(l=>`<div class="dx"><div class="pt"><input type="date" data-lab="${l.id}" data-k="fecha" value="${l.fecha}" style="width:170px"><button class="btn sm bad" data-act="labDel" data-id="${l.id}">✕ Fecha</button></div>
+     <div class="grid" style="margin-top:8px">${Object.keys(l.items).sort(keyCmp).map(k=>`<div><label>${esc(rlab(k))}${l.fl&&l.fl[k]?' ⚑':''}</label><input data-lab="${l.id}" data-k="${k}" value="${esc(l.items[k])}" style="text-transform:uppercase"></div>`).join('')}</div>
+     <div class="row" style="margin-top:8px"><select id="ak_${l.id}" style="width:220px"><option value="">+ examen…</option>${opts}</select><button class="btn sm" data-act="labKey" data-id="${l.id}">Agregar</button></div>
+     <label style="margin-top:6px">Nota (sale debajo de la tabla)</label><input data-lab="${l.id}" data-k="nota" value="${esc(l.nota||'')}" style="text-transform:uppercase"></div>`).join('')}</details></div>`;
+  return s1+s2+s3}
+
+/* ---- pestaña Pulsos ---- */
+function pulsosTab(hc,p){const ps=pulsosSorted(p);const act=p.pulsos.find(x=>x.id===hc.pulsoId);const prev=cfmTotal(p,act&&act.fi?act.fi:hc.fecha,false),tot=cfmTotal(p,'9999-12-31',true);
+  return `<div class="card"><h3>Registro de pulsos</h3><p class="muted" style="margin-top:0">Agrégalos en cualquier orden y pon tú el N°: la app los ordena por fecha de inicio y los pone como columnas amarillas en la tabla de labs.</p>
+   <div class="alert a-info">CFM acumulada previa: <b>${fmtG(prev)}</b>${act&&act.cfm?` · con el pulso actual: <b>${fmtG(prev+(parseFloat(act.cfm)||0))}</b>`:''} · total registrado: ${fmtG(tot)}</div>
+   ${ps.map((x,i)=>{const isA=x.id===hc.pulsoId;return `<div class="dx" style="${isA?'border:2px solid var(--pri)':''}"><div class="pt"><b>${x.fi?esc(pulLabel(p,x)):'Pulso sin fecha'}${isA?' · ACTUAL (esta HC)':''}</b>${isA?'':`<button class="btn sm bad" data-act="pulDel" data-id="${x.id}">✕</button>`}</div>
+    <div class="grid" style="margin-top:8px"><div><label>N° de pulso</label><input data-pul="${x.id}" data-k="num" value="${esc(x.num||'')}" inputmode="numeric" placeholder="${i+1}"></div><div><label>Inicio</label><input type="date" data-pul="${x.id}" data-k="fi" value="${esc(x.fi)}"></div><div><label>Fin</label><input type="date" data-pul="${x.id}" data-k="ff" value="${esc(x.ff)}"></div><div><label>Ciclofosfamida (mg)</label><input data-pul="${x.id}" data-k="cfm" value="${esc(x.cfm)}" ${NUM}></div></div>
+    <label style="margin-top:8px">Esquema / fármacos</label><input data-pul="${x.id}" data-k="esquema" value="${esc(x.esquema)}" style="text-transform:uppercase" placeholder="MTP 500 MG EV X 3 DÍAS + CICLOFOSFAMIDA 500 MG">
+    <div class="chips" style="margin-top:6px">${ESQ_CHIPS.map(c=>`<button class="chip" data-act="esq" data-id="${x.id}" data-v="${esc(c)}">${esc(c)}</button>`).join('')}</div>
+    <label style="margin-top:8px">Nota (opcional)</label><input data-pul="${x.id}" data-k="nota" value="${esc(x.nota)}" style="text-transform:uppercase" placeholder="TOLERÓ BIEN / REACCIÓN…">
+    <div class="muted" style="margin-top:6px">En el texto: ${esc(pulsoTitle(p,x))} — ${esc(fechasPalabras(x.fi,x.ff)||'sin fechas')}</div></div>`}).join('')}
+   <button class="btn sm" data-act="pulAdd">+ Agregar pulso</button></div>`}
+
+/* ---- pestaña Tamizaje ---- */
+function inmTab(hc,p){return `<div class="card"><h3>Tamizaje pre-inmunosupresión</h3><p class="muted" style="margin-top:0">Se llena solo con las serologías de los PDF del ESSI. La inmunología (ANA, ANCA, C3/C4…) ahora está en Laboratorio.${hc.tipo==='pulso'?' En una HC de pulso, los 5 primeros salen como “falta” si están vacíos.':''}</p>
+   ${TAMIZ.map(k=>`<div class="grid" style="grid-template-columns:1.3fr 1fr 150px;align-items:end;margin-bottom:6px"><div style="font-weight:600;font-size:14px">${k}</div><input data-tz="${k}" data-k="r" value="${esc((p.tamiz[k]||{}).r||'')}" placeholder="NO REACTIVO" style="text-transform:uppercase"><input type="date" data-tz="${k}" data-k="f" value="${esc((p.tamiz[k]||{}).f||'')}"></div>`).join('')}</div>`}
+
+/* ---- pestaña Nota de ingreso ---- */
+function niTab(hc,p){niOf(hc);return `<div class="card"><h3>Nota de ingreso a Nefrología</h3><p class="muted" style="margin-top:0">Se arma sola con la HC: filiación, antecedentes (con hospitalizaciones), historia, examen, los análisis e imágenes que elegiste en Laboratorio (más reciente primero) y los diagnósticos como problemas. Aquí solo completa lo propio de la nota.</p>
+   ${TA('ni.basal','Estado basal / cómo ingresa',2,'INDEPENDIENTE. INGRESA CON VÍA VENOSA PERIFÉRICA.')}<div style="height:8px"></div>
+   ${TA('ni.plan','Plan (uno por línea)',4,'SE SOLICITAN EXÁMENES DE RUTINA')}<div style="height:8px"></div>${TA('ni.ind','Indicaciones (una por línea)',8,'DIETA HIPOSÓDICA\nOMEPRAZOL 20 MG VO C/24H')}</div>
+   <div class="card"><h3>Vista previa</h3><pre class="note" id="niprev"></pre><div class="row" style="margin-top:10px"><button class="btn pri" data-act="niCopy">Copiar</button><button class="btn" data-act="niTxt">TXT</button></div></div>`}
+function exportNiTxt(id){const hc=DB.hcs[id],p=DB.patients[hc.dni];saveFile(new Blob(['﻿'+niText(hc).replace(/\r?\n/g,'\r\n')],{type:'text/plain;charset=utf-8'}),'NOTA INGRESO '+p.nombre.replace(/[^A-ZÑÁÉÍÓÚ ]/gi,'').trim()+' '+hc.fecha+'.txt')}
+
+/* ---- Word: tabla vertical (parámetros en filas, fechas en columnas, pulsos en amarillo) ---- */
+function vtabXML(t){const FW=1450,MAXW=9495-FW;
+  const lp=(tx,sz,b,jc)=>`<w:p><w:pPr><w:keepNext/><w:spacing w:after="0"/>${jc?`<w:jc w:val="${jc}"/>`:''}</w:pPr>${run(tx,{b,sz})}</w:p>`;
+  const wOf=c=>c.t==='p'?295:Math.max(385,Math.min(1500,Math.max(0,...t.keys.map(k=>String(t.val(k,c.f).v).length))*66+70));
+  const chunks=[];let cur=[],w=0;t.cols.forEach(c=>{const cw=wOf(c);if(cur.length&&w+cw>MAXW){chunks.push(cur);cur=[];w=0}cur.push({...c,w:cw});w+=cw});if(cur.length)chunks.push(cur);
+  const B6=s=>`<w:${s} w:val="single" w:sz="6" w:space="0" w:color="000000"/>`,B12=s=>`<w:${s} w:val="single" w:sz="12" w:space="0" w:color="000000"/>`;
+  const pulTc=(c,pos)=>`<w:tc><w:tcPr><w:tcW w:w="${c.w}" w:type="dxa"/>${pos==='first'?'<w:vMerge w:val="restart"/>':'<w:vMerge/>'}<w:tcBorders>${pos==='first'?B6('top'):''}${B12('left')}${pos==='last'?B6('bottom'):''}${B12('right')}</w:tcBorders><w:shd w:val="clear" w:color="auto" w:fill="FFFF00"/><w:textDirection w:val="btLr"/></w:tcPr>${pos==='first'?lp(c.txt,10,true,'center'):'<w:p/>'}</w:tc>`;
+  const tc=(w,inner)=>`<w:tc><w:tcPr><w:tcW w:w="${w}" w:type="dxa"/><w:vAlign w:val="center"/></w:tcPr>${inner}</w:tc>`;
+  return chunks.map(cs=>{const ws=[FW,...cs.map(c=>c.w)],n=t.keys.length;
+    const head=`<w:tr><w:trPr><w:cantSplit/><w:trHeight w:val="560"/><w:tblHeader/></w:trPr>${tc(FW,lp('Parámetro',13,true))}${cs.map(c=>c.t==='p'?pulTc(c,'first'):tc(c.w,lp(c.f.slice(8)+'-'+c.f.slice(5,7),11,true,'center')+lp(c.f.slice(2,4),11,true,'center'))).join('')}</w:tr>`;
+    const rows=t.keys.map((k,i)=>`<w:tr><w:trPr><w:cantSplit/></w:trPr>${tc(FW,lp(rlab(k),13))}${cs.map(c=>{if(c.t==='p')return pulTc(c,i===n-1?'last':'mid');const x=t.val(k,c.f);return tc(c.w,lp(x.v,13,x.b,'center'))}).join('')}</w:tr>`).join('');
+    return `<w:tbl><w:tblPr><w:tblW w:w="${ws.reduce((a,b)=>a+b,0)}" w:type="dxa"/><w:tblInd w:w="50" w:type="dxa"/>${BORD}<w:tblLayout w:type="fixed"/><w:tblCellMar><w:top w:w="20" w:type="dxa"/><w:left w:w="30" w:type="dxa"/><w:bottom w:w="20" w:type="dxa"/><w:right w:w="30" w:type="dxa"/></w:tblCellMar></w:tblPr><w:tblGrid>${ws.map(x=>`<w:gridCol w:w="${x}"/>`).join('')}</w:tblGrid>${head}${rows}</w:tbl>${par('',{after:60})}`}).join('')}
 function mountLabImport(){const f=$('#lfotos'),pd=$('#lpdf'),t=$('#ltext'),fe=$('#lfecha');if(f)f.onchange=ev=>ocrFiles([...ev.target.files]);if(pd)pd.onchange=ev=>pdfFiles([...ev.target.files]);if(t)t.oninput=()=>{LS.text=t.value};if(fe)fe.onchange=()=>{LS.fecha=fe.value}}
 function curDni(){const h=CUR&&CUR.hc;return h&&/^\d{8}$/.test(h.dni)?h.dni:''}
-function onEssi(r,ne){LS.rows=sortRev((LS.rows||[]).concat(r.rows.map(x=>({...x,on:true}))));LS.texts=(LS.texts||[]).concat(r.texts.map(t=>({...t,on:true})));LS.pend=(LS.pend||[]).concat(r.pend.map(p=>({...p,on:false})));LS.unk=(LS.unk||[]).concat(r.unk);rerender();toast(essiMsg(r,ne))}
+function onEssi(r,ne){const hc=CUR&&CUR.hc;if(!hc)return;const p=DB.patients[hc.dni];const sv=saveLabRows(p,r.rows,r.texts);LS.last={n:sv.n,fechas:sv.fechas,texts:r.texts.length,pend:r.pend,unk:r.unk,ne};p.updated=hc.updated=Date.now();save();rerender();toast(ne+' PDF del ESSI: '+sv.n+' valores guardados')}
 function setBusy(msg,frac){LS.busy=msg;const b=$('#lbusy');if(b)b.textContent=msg;const pr=$('#lprog');if(pr){pr.parentNode.hidden=!msg;pr.style.width=Math.round((frac||0)*100)+'%'}}
 function appendText(t){LS.text=(LS.text?LS.text+'\n':'')+t;const ta=$('#ltext');if(ta)ta.value=LS.text}
 let OCRW=null;
@@ -320,27 +458,6 @@ function sortRev(rows){return rows.sort((a,b)=>b.fecha.localeCompare(a.fecha)||L
 function revExtraHTML(S,stateName,pendLabel){return `${(S.texts||[]).length?`<h4>Informes de texto (${S.texts.length})</h4>${S.texts.map((t,i)=>`<label class="chkl"><input type="checkbox" ${t.on?'checked':''} onchange="${stateName}.texts[${i}].on=this.checked"><span><b>${fmtD(t.fecha)} · ${esc(t.titulo)}</b><br><span class="muted">${esc(t.onlyC&&t.concl?t.concl:t.texto)}</span>${t.concl?`<br><label class="chk" style="margin-top:4px" onclick="event.stopPropagation()"><input type="checkbox" ${t.onlyC?'checked':''} onchange="${stateName}.texts[${i}].onlyC=this.checked;rerender()"> Solo la conclusión</label>`:''}</span></label>`).join('')}`:''}
   ${(S.pend||[]).length?`<h4>Aún sin resultado en el ESSI (${S.pend.length})</h4>${S.pend.map((p,i)=>`<label class="chkl"><input type="checkbox" ${p.on?'checked':''} onchange="${stateName}.pend[${i}].on=this.checked"><span>${esc(p.titulo)} <span class="muted">(solicitado ${fmtD(p.solic)})</span></span></label>`).join('')}<p class="muted">${pendLabel}</p>`:''}`}
 
-/* ---- pestaña Pulsos ---- */
-function pulsosTab(hc,p){const ps=pulsosSorted(p);const act=p.pulsos.find(x=>x.id===hc.pulsoId);const prev=cfmTotal(p,act&&act.fi?act.fi:hc.fecha,false),tot=cfmTotal(p,'9999-12-31',true);
-  return `<div class="card"><h3>Registro de pulsos</h3><p class="muted" style="margin-top:0">El número (PRIMER, SEGUNDO…) sale solo por orden de fecha. Cada pulso aparece resaltado en su lugar de la tabla de labs.</p>
-   <div class="alert a-info">CFM acumulada previa: <b>${fmtG(prev)}</b>${act&&act.cfm?` · con el pulso actual: <b>${fmtG(prev+(parseFloat(act.cfm)||0))}</b>`:''} · total registrado: ${fmtG(tot)}</div>
-   ${ps.map(x=>{const isA=x.id===hc.pulsoId;return `<div class="dx" style="${isA?'border:2px solid var(--pri)':''}"><div class="pt"><b>${esc(ordinalOf(p,x))} PULSO${isA?' · ACTUAL (esta HC)':''}</b>${isA?'':`<button class="btn sm bad" data-act="pulDel" data-id="${x.id}">✕</button>`}</div>
-    <div class="grid" style="margin-top:8px"><div><label>Inicio</label><input type="date" data-pul="${x.id}" data-k="fi" value="${esc(x.fi)}"></div><div><label>Fin</label><input type="date" data-pul="${x.id}" data-k="ff" value="${esc(x.ff)}"></div><div><label>Ciclofosfamida (mg)</label><input data-pul="${x.id}" data-k="cfm" value="${esc(x.cfm)}" ${NUM}></div></div>
-    <label style="margin-top:8px">Esquema / fármacos</label><input data-pul="${x.id}" data-k="esquema" value="${esc(x.esquema)}" style="text-transform:uppercase" placeholder="MTP 500 MG EV X 3 DÍAS + CICLOFOSFAMIDA 500 MG">
-    <div class="chips" style="margin-top:6px">${ESQ_CHIPS.map(c=>`<button class="chip" data-act="esq" data-id="${x.id}" data-v="${esc(c)}">${esc(c)}</button>`).join('')}</div>
-    <label style="margin-top:8px">Nota (opcional)</label><input data-pul="${x.id}" data-k="nota" value="${esc(x.nota)}" style="text-transform:uppercase" placeholder="TOLERÓ BIEN / REACCIÓN…">
-    <div class="muted" style="margin-top:6px">En la tabla: ${esc(pulsoTitle(p,x))} — ${esc(fechasPalabras(x.fi,x.ff)||'sin fechas')}</div></div>`}).join('')}
-   <button class="btn sm" data-act="pulAdd">+ Registrar pulso previo</button></div>`}
-
-/* ---- pestaña Inmuno y tamizaje ---- */
-const INMKEYS=LABDEF.filter(d=>d[2]==='INMUNO').map(d=>d[0]);
-function inmTab(hc,p){const rows=p.inmuno.slice().sort((a,b)=>a.fecha.localeCompare(b.fecha));
-  return `<div class="card"><div class="pt"><h3 style="margin:0">Perfil inmunológico</h3><button class="btn sm pri" data-act="inmAdd">+ Fecha</button></div><p class="muted">También se llena solo al importar análisis (ANA, ANCA, C3/C4, IgG/IgA/IgM, anti-PLA2R…).</p>
-   ${rows.map(r=>`<div class="dx"><div class="pt"><input type="date" data-inm="${r.id}" data-k="fecha" value="${r.fecha}" style="width:170px"><button class="btn sm bad" data-act="inmDel" data-id="${r.id}">✕</button></div>
-    <div class="grid" style="margin-top:8px">${Object.keys(r.items).map(k=>`<div><label>${LABMAP[k]?LABMAP[k].n:k}</label><input data-inm="${r.id}" data-k="${k}" value="${esc(r.items[k])}" style="text-transform:uppercase"></div>`).join('')}</div>
-    <div class="row" style="margin-top:8px"><select id="ik_${r.id}" style="width:200px">${INMKEYS.filter(k=>r.items[k]==null).map(k=>`<option value="${k}">${LABMAP[k].n}</option>`).join('')}</select><button class="btn sm" data-act="inmKey" data-id="${r.id}">+ Examen</button></div></div>`).join('')||'<div class="muted">Sin datos.</div>'}</div>
-  <div class="card"><h3>Tamizaje pre-inmunosupresión</h3>${hc.tipo==='pulso'?'<p class="muted" style="margin-top:0">Los 5 primeros salen como “falta” en una HC de pulso si están vacíos.</p>':''}
-   ${TAMIZ.map(k=>`<div class="grid" style="grid-template-columns:1.3fr 1fr 150px;align-items:end;margin-bottom:6px"><div style="font-weight:600;font-size:14px">${k}</div><input data-tz="${k}" data-k="r" value="${esc((p.tamiz[k]||{}).r||'')}" placeholder="NO REACTIVO" style="text-transform:uppercase"><input type="date" data-tz="${k}" data-k="f" value="${esc((p.tamiz[k]||{}).f||'')}"></div>`).join('')}</div>`}
 
 /* ---- Pacientes y ajustes ---- */
 function vPacientes(){const q=deacc(R.q||'');const ps=Object.values(DB.patients).filter(p=>!q||p.dni.includes(q)||deacc(p.nombre).includes(q)).sort((a,b)=>a.nombre.localeCompare(b.nombre));
@@ -357,7 +474,7 @@ function vAjustes(){const s=DB.settings;
   <div class="card"><h3>Respaldo</h3><p class="muted" style="margin-top:0">Último: ${s.lastBackup?new Date(s.lastBackup).toLocaleString('es-PE'):'nunca'} · ${(bytes/1024).toFixed(0)} KB</p>
    <div class="row"><button class="btn pri" onclick="exportBackup()">Exportar respaldo</button><label class="btn" style="margin:0;color:var(--ink);font-size:16px">Importar<input type="file" accept=".json,application/json" style="display:none" onchange="importBackup(this.files[0])"></label></div></div>
   <div class="card"><h3>Zona de riesgo</h3><button class="btn bad" onclick="wipe()">Borrar todos los datos</button></div>
-  <p class="muted">HC Nefro v1.6 · Plantillas editables: valídalas con el servicio.</p>`}
+  <p class="muted">HC Nefro v2.0 · Plantillas editables: valídalas con el servicio.</p>`}
 
 /* =====================================================================
    EXPORTAR
@@ -367,7 +484,7 @@ async function saveFile(blob,name){try{const f=new File([blob],name,{type:blob.t
 function fname(hc){const p=DB.patients[hc.dni];return 'HC '+p.nombre.replace(/[^A-ZÑÁÉÍÓÚ ]/gi,'').trim()+' '+hc.fecha}
 function exportTxt(id){const hc=DB.hcs[id];const t='﻿'+docText(hc).replace(/\r?\n/g,'\r\n');saveFile(new Blob([t],{type:'text/plain;charset=utf-8'}),fname(hc)+'.txt')}
 function exportBackup(){saveFile(new Blob([JSON.stringify({app:'hc-nefro',version:1,exported:new Date().toISOString(),data:DB})],{type:'application/json'}),'respaldo-hc-nefro-'+todayISO()+'.json').then(ok=>{if(ok){DB.settings.lastBackup=Date.now();save();render();toast('Respaldo exportado')}})}
-function importBackup(file){if(!file)return;const r=new FileReader();r.onload=async()=>{try{const j=JSON.parse(r.result);if(j.app&&j.app!=='hc-nefro')throw new Error('app');const d=j.data||j;if(!d.patients||!d.hcs)throw new Error('f');
+function importBackup(file){if(!file)return;const r=new FileReader();r.onload=async()=>{try{const j=JSON.parse(r.result);if(j.app&&j.app!=='hc-nefro')throw new Error('app');const d=j.data||j;if(!d.patients||!d.hcs)throw new Error('f');migrate(d);
   if(!await ask('Aceptar = COMBINAR (gana la versión más reciente de cada registro).'))return;let c=0;[['patients','dni'],['hcs','id']].forEach(([k,id])=>Object.values(d[k]).forEach(x=>{const cur=DB[k][x[id]];if(!cur||(x.updated||0)>(cur.updated||0)){DB[k][x[id]]=x;c++}}));save();render();toast('Importados '+c+' registros')}catch(e){toast(e.message==='app'?'Ese respaldo es de otra app':'Archivo no válido')}};r.readAsText(file)}
 
 /* ---- Word ---- */
@@ -395,15 +512,7 @@ function docXML(hc){const parts=[];docBlocks(hc).forEach(b=>{switch(b.t){
   case'num':b.items.forEach((i,n)=>parts.push(par(run((n+1)+'.  ',{b:true})+run(up(i)),{ind:360,hang:300,after:20})));break;
   case'note':b.items.forEach(i=>parts.push(par(run(up(i),{b:true,color:'1F5F8B'}))));break;
   case'kv':{const w1=b.wide?2300:3000,w2=W-w1;parts.push(tbl([w1,w2],b.rows.map(([k,v])=>`<w:tr>${cell(w1,cp(b.wide?k:k,{b:true,jc:b.wide?'center':undefined}),{fill:b.wide?'F2F2F2':undefined})}${cell(w2,cp(up(v||''),{jc:b.wide?'both':undefined}))}</w:tr>`)));break}
-  case'lab':{const n=b.cols.length,land=n>11,TW=land?WL:W,fw=land?1050:1000;
-    const len=b.cols.map((c,i)=>Math.max(...c.split(/[\s\/]/).map(x=>x.length),...b.rows.filter(r=>r.t==='lab').map(r=>String(r.cells[i]||'').length),3));
-    const tot=len.reduce((x,y)=>x+y,0);let ws=[fw,...len.map(l=>Math.max(440,Math.floor((TW-fw)*l/tot)))];const over=ws.reduce((x,y)=>x+y,0)-TW;if(over>0){const big=ws.indexOf(Math.max(...ws.slice(1)));ws[big]-=over}
-    const sz=land?15:16;
-    const head=`<w:tr><w:trPr><w:tblHeader/></w:trPr>${cell(fw,cp('FECHA',{b:true,sz,jc:'center'}),{fill:'D9E2F3'})}${b.cols.map((c,i)=>cell(ws[i+1],cp(c,{b:true,sz,jc:'center'}),{fill:'D9E2F3'})).join('')}</w:tr>`;
-    const rows=b.rows.flatMap(r=>{if(r.t==='pulso')return [`<w:tr>${cell(TW,cp(r.txt,{b:true,u:true,sz:sz+1,jc:'center',color:'1F3864'})+cp(r.sub,{b:true,sz,jc:'center',color:'1F3864'}),{span:n+1,fill:'FFF2CC'})}</w:tr>`];
-      const out=[];if(r.cells.some(Boolean))out.push(`<w:tr>${cell(fw,cp(fmtD(r.fecha),{sz}))}${r.cells.map((v,i)=>cell(ws[i+1],cp(v,{sz,jc:'center'}))).join('')}</w:tr>`);
-      if(r.nota)out.push(`<w:tr>${r.cells.some(Boolean)?cell(fw,cp('',{sz})):cell(fw,cp(fmtD(r.fecha),{sz}))}${cell(TW-fw,cp(up(r.nota),{b:true,sz,jc:'center'}),{span:n})}</w:tr>`);return out});
-    if(land)parts.push(secBreak(false));parts.push(tbl(ws,[head,...rows]));if(land)parts.push(secBreak(true));break}
+  case'vtab':parts.push(vtabXML(b.tb));break;
   case'grid':{const n=b.cols.length,cw=Math.floor(W/n);parts.push(tbl(Array(n).fill(cw),[`<w:tr>${b.cols.map(c=>cell(cw,cp(c,{b:true,sz:16,jc:'center'}),{fill:'D9E2F3'})).join('')}</w:tr>`,...b.rows.map(r=>`<w:tr>${r.map(v=>cell(cw,cp(v||'',{sz:16,jc:'center'}))).join('')}</w:tr>`)]));break}}});
   return parts.join('')}
 function exportWord(id){const hc=DB.hcs[id],p=DB.patients[hc.dni];
@@ -422,5 +531,5 @@ function zip(files){const enc=new TextEncoder(),parts=[],cen=[];let off=0;const 
     const e=new DataView(new ArrayBuffer(46));e.setUint32(0,0x02014b50,true);e.setUint16(4,20,true);e.setUint16(6,20,true);e.setUint16(12,tm,true);e.setUint16(14,dt,true);e.setUint32(16,c,true);e.setUint32(20,data.length,true);e.setUint32(24,data.length,true);e.setUint16(28,n.length,true);e.setUint32(42,off,true);cen.push(new Uint8Array(e.buffer),n);off+=30+n.length+data.length});
   const cs=cen.reduce((a,b)=>a+b.length,0),end=new DataView(new ArrayBuffer(22));end.setUint32(0,0x06054b50,true);end.setUint16(8,files.length,true);end.setUint16(10,files.length,true);end.setUint32(12,cs,true);end.setUint32(16,off,true);return new Blob([...parts,...cen,new Uint8Array(end.buffer)])}
 
-render();
+DB=load();render();
 if('serviceWorker' in navigator&&(location.protocol==='https:'||location.hostname==='localhost'))navigator.serviceWorker.register('sw.js').catch(()=>{});

@@ -127,6 +127,16 @@ table.rev input[type=checkbox]{width:22px;height:22px;min-height:0}
 .prog{height:6px;background:var(--line);border-radius:3px;overflow:hidden;margin-top:8px}.prog i{display:block;height:100%;background:var(--pri);width:0}
 input[data-up],.ind input.t,[data-pd][data-f="t"],[data-pd][data-f="res"]{text-transform:uppercase}
 .chips .chip{font-size:13px;min-height:34px;padding:6px 10px}
+.chips{gap:6px}
+.chip.on{background:var(--pri);color:var(--pri-ink);border-color:var(--pri)}
+.chip .cnt{font-size:11px;opacity:.7;margin-left:2px}
+.ltw{overflow-x:auto;margin:6px 0 12px;-webkit-overflow-scrolling:touch}
+table.lt{border-collapse:collapse;font-size:12px;background:var(--card)}
+table.lt td,table.lt th{border:1px solid var(--line);padding:3px 6px;text-align:center;white-space:nowrap;line-height:1.25}
+table.lt th{font-weight:700;background:var(--bg)}
+table.lt td:first-child,table.lt th:first-child{text-align:left;position:sticky;left:0;background:var(--card);z-index:1}
+table.lt th.pu{background:#ff0;color:#000;border-left:2px solid #000;border-right:2px solid #000;padding:4px 2px;vertical-align:middle}
+table.lt th.pu span{writing-mode:vertical-rl;transform:rotate(180deg);font-size:10px;white-space:nowrap}
 .modal{position:fixed;inset:0;background:rgba(0,0,0,.45);display:flex;align-items:center;justify-content:center;z-index:50;padding:16px}
 .mbox{background:var(--card);color:var(--ink);border-radius:14px;padding:18px;max-width:440px;width:100%;box-shadow:0 10px 30px rgba(0,0,0,.3)}
 .mbox p{margin:0 0 14px;font-size:16px}

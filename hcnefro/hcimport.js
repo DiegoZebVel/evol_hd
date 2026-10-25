@@ -28,7 +28,8 @@ function parsePulso(text){const u=nz(text).replace(/\n/g,' ');if(!/PULSO/.test(u
   if(m&&MESN[m[5]]){const y2=+m[6],m2=MESN[m[5]],m1=m[2]&&MESN[m[2]]?MESN[m[2]]:m2,y1=m[3]?+m[3]:(m1>m2?y2-1:y2);fi=isoYMD(y1,m1,+m[1]);ff=isoYMD(y2,m2,+m[4])}
   else{m=u.match(/(\d{1,2})\s+DE\s+([A-Z]+)\s+(?:DEL?\s+)?(\d{4})/);if(m&&MESN[m[2]])fi=isoYMD(+m[3],MESN[m[2]],+m[1]);else{const d=parseDate(u);if(d)fi=d}}
   const cfm=(u.match(/CICLOFOSFAMIDA\s+(\d+(?:[.,]\d+)?)\s*(G|MG)\b/)||[]);
-  return {fi,ff,esquema:esq.replace(/\s*[-–]\s*$/,'').trim(),cfm:cfm[1]?String(cfm[2]==='G'?parseFloat(cfm[1].replace(',','.'))*1000:cfm[1]):''}}
+  const OW=['PRIMER','SEGUNDO','TERCER','CUARTO','QUINTO','SEXTO','SEPTIMO','OCTAVO','NOVENO','DECIMO'];let num='';const nm=u.match(/(\d{1,2})\s*[°ºO]?\s*PULSO/)||u.match(/\b(PRIMER|SEGUNDO|TERCER|CUARTO|QUINTO|SEXTO|SEPTIMO|OCTAVO|NOVENO|DECIMO)\s+PULSO/);if(nm)num=/^\d+$/.test(nm[1])?nm[1]:String(OW.indexOf(nm[1])+1);
+  return {num,fi,ff,esquema:esq.replace(/\s*[-–]\s*$/,'').trim(),cfm:cfm[1]?String(cfm[2]==='G'?parseFloat(cfm[1].replace(',','.'))*1000:cfm[1]):''}}
 const HDRMAP={CREAT:['CREA'],CREA:['CREA'],CREATININA:['CREA'],UREA:['UREA'],HB:['HB'],HGB:['HB'],LEU:['LEU'],LEUCO:['LEU'],LEUCOS:['LEU'],LEUCOCITOS:['LEU'],PLAQ:['PLAQ'],PLAQUETAS:['PLAQ'],
   'K/NA':['K','NA'],K:['K'],NA:['NA'],COLEST:['COLEST'],TRIG:['TRIG'],PCR:['PCR'],GLUCOSA:['GLU'],GLU:['GLU'],ALB:['ALB'],ALBUMINA:['ALB'],'PROT/G/ALB':['PT','GLOB','ALB'],'T4/TSH':['T4L','TSH'],'PTH/P/CA':['PTH','P','CA'],
   'TGO/TGP':['TGO','TGP'],INR:['INR'],SEG:['SEG'],ABAST:['ABS']};
@@ -42,7 +43,7 @@ function segOf(label){const k=nk(label);if(!k)return null;const hit=SEGKEY.find(
 const IMGW=/(ECOGRAF|ECO\b|TEM\b|TAC\b|RX\b|RADIOGRAF|RMN|RESONANCIA|CITOQUIMIC|URETRO|CISTOGRAF|GAMMAGRAF|ECOCARDIO|DOPPLER|ENDOSCOP|COLONOSCOP|ELECTROCARDIO|EKG|ECG|ANGIO|DENSITOMETR|CULTIVO|PERITONEAL)/;
 
 function parseHCBlocks(blocks){
-  const R={fil:{},anam:{tiempo:'',sintomas:'',hea:''},fb:{},ant:{otras:[],quir:[],med:[],proc:[],enf:{},parto:'',inmun:'',covid:'',alerg:'',transf:''},grupo:'',labs:[],inmuno:[],pulsos:[],biopsia:{fecha:'',texto:''},informes:[],exGen:'',fv:{},ex:{},dx:[]};
+  const R={fil:{},anam:{tiempo:'',sintomas:'',hea:''},fb:{},ant:{otras:[],hosp:[],quir:[],med:[],proc:[],enf:{},parto:'',inmun:'',covid:'',alerg:'',transf:''},grupo:'',labs:[],inmuno:[],pulsos:[],biopsia:{fecha:'',texto:''},informes:[],exGen:'',fv:{},ex:{},dx:[]};
   let sec='',sub='',cur=null,anamF='';
   const head=u=>{if(/^HISTORIA CLINICA$/.test(u)||/^FILIACION/.test(u))return'fil';if(/^ANAMNESIS/.test(u))return'anam';if(/^FUNCIONES BIOLOGICAS/.test(u))return'fb';if(/^ANTECEDENTES\s*:?$/.test(u))return'ant';
     if(/^EXAMENES AUXILIARES/.test(u))return'aux';if(/^EXAMEN FISICO REGIONAL/.test(u))return'exreg';if(/^EXAMEN FISICO/.test(u))return'exgen';if(/^IMPRESION DIAGNOSTICA|^DIAGNOSTICOS?\s*:?$/.test(u))return'dx';return null};
@@ -88,11 +89,12 @@ function parseHCBlocks(blocks){
       if(/^CIRUGIAS|^ANTECEDENTES QUIRURGICOS|^QUIRURGICOS/.test(tu)){sub='quir';const rest=t.replace(/^[^:.]*[:.]\s*/,'');if(rest&&rest!==t&&!/^NIEGA$/i.test(rest))R.ant.quir.push(up(rest));return}
       if(/^MEDICACION HABITUAL|^MEDICACION/.test(tu)){sub='med';const rest=t.replace(/^[^:]*:\s*/,'');if(rest&&rest!==t)R.ant.med.push(up(rest));return}
       if(/^PROCEDIMIENTOS/.test(tu)){sub='proc';return}
+      if(/^HOSPITALIZACIONES/.test(tu)){sub='hosp';const rest=t.replace(/^[^:]*:\s*/,'');if(rest&&rest!==t&&!/^NIEGA$/i.test(rest))R.ant.hosp.push(up(rest));return}
       if(m=t.match(/^alergias?\s*:?\s*(.*)$/i)){R.ant.alerg=up(m[1].trim()||'NIEGA');sub='';return}
       if(m=t.match(/^transfusion(?:es)?\s*:?\s*(.*)$/i)){R.ant.transf=up(m[1].trim());sub='';return}
       if(sub==='pers'){if(/PARTO/.test(tu))R.ant.parto=up(t);else if(/INMUNIZ/.test(tu))R.ant.inmun=up(t);else if(/COVID/.test(tu))R.ant.covid=up(t.replace(/^.*COVID\s*:?\s*/i,''));return}
       if(sub==='enf'){lineEnf(t);return}if(sub==='quir'){if(!/^NIEGA$/.test(tu))R.ant.quir.push(up(t));return}if(sub==='med'){if(!/^NIEGA$/.test(tu))R.ant.med.push(up(t));return}
-      if(sub==='proc'){R.ant.proc.push({f:'',n:up(t),d:''});return}return}
+      if(sub==='proc'){R.ant.proc.push({f:'',n:up(t),d:''});return}if(sub==='hosp'){if(!/^NIEGA$/.test(tu))R.ant.hosp.push(up(t));return}return}
     if(sec==='aux'){if(/^LABORATORIO\s*:?$/.test(u))return;const g=u.match(/GRUPO ?SANGUINEO\s*:?\s*(.+)$/);if(g){R.grupo=g[1].replace(/\s+/g,' ').trim();return}
       const isTitle=(b.b&&raw.length<110)||(raw.length<70&&/:$/.test(raw)&&!/^-/.test(raw));
       if(isTitle&&!(cur&&cur.bio&&!IMGW.test(u))){const bio=/BIOPSIA/.test(u)&&!IMGW.test(u);const fecha=parseDate(raw);
@@ -112,7 +114,7 @@ function parseHCBlocks(blocks){
   if(R.fil.fnac){const d=parseDate(R.fil.fnac);R.fil.fnac=d||''}if(R.fil.edad)R.fil.edad=R.fil.edad.replace(/\D+/g,'');
   if(R.fil.sexo)R.fil.sexo=/^F/.test(R.fil.sexo)?'FEMENINO':/^M/.test(R.fil.sexo)?'MASCULINO':R.fil.sexo;if(R.fil.dni)R.fil.dni=R.fil.dni.replace(/\D/g,'')||R.fil.dni;
   const split=a=>a.flatMap(x=>String(x).split('\n')).map(x=>x.replace(/^[-•·*\s]+/,'').replace(/^\d+\s*[.)]?\s*-?\s*/,'').trim()).filter(Boolean);
-  R.ant.med=split(R.ant.med);R.ant.quir=split(R.ant.quir);R.ant.otras=split(R.ant.otras);R.dx=split(R.dx);
+  R.ant.med=split(R.ant.med);R.ant.quir=split(R.ant.quir);R.ant.otras=split(R.ant.otras);R.ant.hosp=split(R.ant.hosp);R.dx=split(R.dx);
   R.informes=R.informes.filter(i=>i.titulo||i.texto);
   return R;
 }
@@ -153,13 +155,13 @@ function applyImportHC(){const r=IMPHC.r,on=IMPHC.on;const dni=$('#impDni').valu
   if(r.grupo)fill(p,'grupo',up(r.grupo));
   if(on.ant){const A=p.ant,I=r.ant;['parto','inmun','covid','alerg','transf'].forEach(k=>{if(I[k]&&(isNew||!A[k]||(k==='alerg'&&A[k]==='NIEGA')||(k==='parto'&&A[k]==='NACIDO DE PARTO VAGINAL')||(k==='inmun'&&A[k]==='REFIERE INMUNIZACIONES COMPLETAS')))A[k]=I[k]});
     Object.keys(I.enf).forEach(k=>{if(isNew||A.enf[k]!=='SÍ')A.enf[k]=I.enf[k]});
-    const merge=(cur,add)=>{const L=lines(cur);add.forEach(x=>{if(!L.some(y=>deacc(y)===deacc(x)))L.push(x)});return L.join('\n')};A.otras=merge(A.otras,I.otras);A.quir=merge(A.quir,I.quir);A.med=merge(A.med,I.med);
+    const merge=(cur,add)=>{const L=lines(cur);add.forEach(x=>{if(!L.some(y=>deacc(y)===deacc(x)))L.push(x)});return L.join('\n')};A.otras=merge(A.otras,I.otras);A.hosp=merge(A.hosp||'',I.hosp||[]);A.quir=merge(A.quir,I.quir);A.med=merge(A.med,I.med);
     A.proc=A.proc||[];I.proc.forEach(x=>{if(!A.proc.some(y=>deacc(y.n)===deacc(x.n)))A.proc.push({id:uid(),...x})})}
-  if(on.labs)r.labs.forEach(l=>{let L=p.labs.find(x=>x.fecha===l.fecha);if(!L){L={id:uid(),fecha:l.fecha,items:{},nota:'',created:Date.now()};p.labs.push(L)}Object.keys(l.items).forEach(k=>{if(!L.items[k])L.items[k]=l.items[k]});if(l.nota&&!(L.nota||'').includes(l.nota))L.nota=(L.nota?L.nota+' / ':'')+l.nota});
-  if(on.inmuno)r.inmuno.forEach(l=>{let I=p.inmuno.find(x=>x.fecha===l.fecha);if(!I){I={id:uid(),fecha:l.fecha,items:{},created:Date.now()};p.inmuno.push(I)}Object.keys(l.items).forEach(k=>{if(!I.items[k])I.items[k]=l.items[k]})});
-  if(on.pulsos)r.pulsos.forEach(x=>{if(!p.pulsos.some(y=>y.fi&&y.fi===x.fi))p.pulsos.push({id:uid(),fi:x.fi,ff:x.ff,esquema:up(x.esquema),cfm:x.cfm||'',nota:'',created:Date.now()})});
+  if(on.labs)r.labs.forEach(l=>{let L=p.labs.find(x=>x.fecha===l.fecha);if(!L){L={id:uid(),fecha:l.fecha,items:{},fl:{},nota:'',created:Date.now()};p.labs.push(L)}Object.keys(l.items).forEach(k=>{if(!L.items[k])L.items[k]=l.items[k]});if(l.nota&&!(L.nota||'').includes(l.nota))L.nota=(L.nota?L.nota+' / ':'')+l.nota});
+  if(on.inmuno)r.inmuno.forEach(l=>{let I=p.labs.find(x=>x.fecha===l.fecha);if(!I){I={id:uid(),fecha:l.fecha,items:{},fl:{},nota:'',created:Date.now()};p.labs.push(I)}Object.keys(l.items).forEach(k=>{if(!I.items[k])I.items[k]=l.items[k]})});
+  if(on.pulsos)r.pulsos.forEach(x=>{if(!p.pulsos.some(y=>y.fi&&y.fi===x.fi))p.pulsos.push({id:uid(),num:x.num||'',fi:x.fi,ff:x.ff,esquema:up(x.esquema),cfm:x.cfm||'',nota:'',created:Date.now()})});
   if(on.biopsia&&r.biopsia.texto.trim()&&!p.biopsia.texto.trim())p.biopsia={fecha:r.biopsia.fecha,texto:r.biopsia.texto};
-  if(on.informes)r.informes.forEach(i=>{if(!p.informes.some(y=>deacc(y.titulo)===deacc(i.titulo)&&y.fecha===i.fecha))p.informes.push({id:uid(),titulo:i.titulo,fecha:i.fecha,texto:i.texto,created:Date.now()})});
+  if(on.informes)r.informes.forEach(i=>{if(!p.informes.some(y=>deacc(y.titulo)===deacc(i.titulo)&&y.fecha===i.fecha))p.informes.push({id:uid(),titulo:i.titulo,fecha:i.fecha,texto:i.texto,res:'',img:IMG_RE.test(deacc(i.titulo||'')),created:Date.now()})});
   p.updated=Date.now();
   const hc=newHC(dni,IMPHC.tipo);hc.importedFrom=IMPHC.name;
   if(on.fb)Object.assign(hc.fb,r.fb);if(on.ex){if(r.exGen)hc.exGen=r.exGen;Object.assign(hc.ex,r.ex)}if(on.dx&&r.dx.length)hc.dx=r.dx.join('\n');

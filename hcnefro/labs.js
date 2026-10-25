@@ -116,7 +116,34 @@ const LABDEF=[
  ['ACL','ANTICARDIOLIPINA','INMUNO','', 'ANTICARDIOLIPINAS?( IGG| IGM)?'],
  ['AL','ANTICOAGULANTE LÚPICO','INMUNO','', 'ANTICOAGULANTE LUPICO'],
  ['B2','ANTI-B2GP1','INMUNO','', 'ANTI[ -]?B(ETA)?2 ?(GP1|GLICOPROTEINA)'],
- ['ASMA','ANTI-MÚSCULO LISO','INMUNO','', 'ANTI[ -]?MUSCULO LISO|ASMA']
+ ['ASMA','ANTI-MÚSCULO LISO','INMUNO','', 'ANTI[ -]?MUSCULO LISO|ASMA'],
+ ['CMVG','CMV IGG','INMUNO','', 'CITOMEGALOVIRUS IGG|CMV IGG'],
+ ['CMVM','CMV IGM','INMUNO','', 'CITOMEGALOVIRUS IGM|CMV IGM'],
+ ['TOXG','TOXOPLASMA IGG','INMUNO','', '(AC\\. )?TOXOPLASMA IGG'],
+ ['TOXM','TOXOPLASMA IGM','INMUNO','', '(AC\\. )?TOXOPLASMA IGM'],
+ ['RUBG','RUBÉOLA IGG','INMUNO','', 'RUBEOLA IGG'],
+ ['RUBM','RUBÉOLA IGM','INMUNO','', 'RUBEOLA IGM'],
+ ['HTLV','HTLV I/II','INMUNO','', 'HTLV( ?- ?I Y II| I\\/II)?'],
+ ['TREP','AC. TREPONEMA','INMUNO','', 'ANTICUERPOS? (CONTRA )?TREPONEMA( PALLIDUM)?|FTA-?ABS|TPHA'],
+ ['CHAGAS','CHAGAS','INMUNO','', 'CHAGAS( ELISA)?'],
+ ['B2M','β2-MICROGLOBULINA','BIOQ','', 'B2 ?MICROGLOBULINA|BETA ?2 ?MICROGLOBULINA'],
+ ['AFP','AFP','OTROS','', 'AFP|ALFA ?FETO ?PROTEINA'],
+ ['CEA','CEA','OTROS','', 'CEA|ANTIGENO CARCINOEMBRIONARIO'],
+ ['PSA','PSA','OTROS','', 'PSA( TOTAL)?|ANTIGENO PROSTATICO'],
+ ['CRIOAG','CRIOAGLUTININAS','INMUNO','', 'CRIOAGLUTININAS?'],
+ ['GS','GRUPO SANGUÍNEO','OTROS','', 'GRUPO SANGUINEO'],
+ ['RH','FACTOR RH','OTROS','', 'FACTOR RH'],
+ ['FIO2','FIO2','AGA','%', 'FIO2'],
+ ['PAFI','PAO2/FIO2','AGA','', 'PAFI|PAO2 ?\\/ ?FIO2'],
+ ['AG','ANIÓN GAP','AGA','', 'ANION GAP|AG'],
+ ['KAGA','K (AGA)','AGA','', 'K AGA'],
+ ['NAAGA','NA (AGA)','AGA','', 'NA AGA'],
+ ['CLAGA','CL (AGA)','AGA','', 'CL AGA'],
+ ['OCOLOR','COLOR','ORINA','', 'COLOR'],
+ ['OASP','ASPECTO','ORINA','', 'ASPECTO'],
+ ['OPH','PH','ORINA','', 'PH'],
+ ['OTHEV','THEVENON','ORINA','', 'THEVENON|SANGRE OCULTA'],
+ ['OCRIS','CRISTALES','ORINA','', 'CRISTALES']
 ];
 const LABMAP={};LABDEF.forEach(d=>LABMAP[d[0]]={k:d[0],n:d[1],a:d[2],u:d[3],re:new RegExp('^(?:'+d[4]+')(?![A-Z0-9])'),no:(d[5]||'').split(',').filter(Boolean)});
 const LABORDER=LABDEF.map(d=>d[0]);
@@ -152,12 +179,13 @@ function parseLabs(text,defFecha){
   });
   return {rows,unk};
 }
-function findKey(u,ctx){for(const k of LABORDER){const d=LABMAP[k];if(d.no.includes(ctx))continue;if(d.a==='ORINA'&&['OLEU','OHEM','OBACT','OCIL','OPROT','ODENS'].includes(k)&&ctx!=='ORINA')continue;if(d.re.test(u))return k}return null}
+const OKEYS=['OLEU','OHEM','OBACT','OCIL','OPROT','ODENS','OCOLOR','OASP','OPH','OTHEV','OCRIS','OCEL'];
+function findKey(u,ctx){for(const k of LABORDER){const d=LABMAP[k];if(d.no.includes(ctx))continue;if(d.a==='ORINA'&&OKEYS.includes(k)&&ctx!=='ORINA')continue;if(d.re.test(u))return k}return null}
 function matchSeg(u,ctx){
   // prueba nombres más largos primero para evitar que "CA" gane a "CALCIO IONICO"
   let best=null;
   for(const k of LABORDER){const d=LABMAP[k];if(d.no.includes(ctx))continue;
-    if(['OLEU','OHEM','OBACT','OCIL','OPROT','ODENS'].includes(k)&&ctx!=='ORINA')continue;
+    if(OKEYS.includes(k)&&ctx!=='ORINA')continue;
     const m=u.match(d.re);if(m&&(!best||m[0].length>best.len)){best={k,len:m[0].length}}}
   if(!best)return null;
   if(ctx==='INMUNO'&&best.k==='CA')best.k='C4'; // OCR suele leer "C4" como "CA"
@@ -209,25 +237,40 @@ const ESSI_MAP={'CREATININA':'CREA','GLUCOSA BASAL':'GLU','GLUCOSA':'GLU','DESHI
  'DOSAJE DE IGM':'IGM','DOSAJE DE IGA':'IGA','DOSAJE DE IGG':'IGG','IGE':'IGE','FACTOR REUMATOIDEO':'FR','CREATINA QUINASA':'CPK','CPK':'CPK','VITAMINA B12':'B12','AC. FOLICO':'FOL','ACIDO FOLICO':'FOL',
  'FIERRO SERICO':'FE','HIERRO SERICO':'FE','HIERRO':'FE','TRANSFERRINA':'TRANSF','VDRL':'VDRL','RPR':'VDRL','PEPTIDO CICLICO CITRULINADO':'CCP','ANTI CCP':'CCP','ANTIGENO DE SUPERFICIE':'HBSAG','HBSAG':'HBSAG',
  'HIV':'VIH','VIH':'VIH','HEPATITIS C':'VHC','HEPATITIS A IGM':'HAVIGM','CORE TOTAL':'HBC','ANTI HBC':'HBC','ANTI HBS':'HBS','CYFRA 21-1':'CYFRA','CA 125':'CA125','CA 19-9':'CA199','CA 15-3':'CA153',
- 'COOMBS DIRECTO':'COOMBSD','COOMBS INDIRECTO':'COOMBSI','CRIOGLOBULINA':'CRIO'};
+ 'COOMBS DIRECTO':'COOMBSD','COOMBS INDIRECTO':'COOMBSI','CRIOGLOBULINA':'CRIO','DOSAJE DE CRIOGLOBULINA,':'CRIO','DOSAJE DE CRIOGLOBULINA':'CRIO',
+ 'CITOMEGALOVIRUS IGG':'CMVG','CITOMEGALOVIRUS IGM':'CMVM','AC. TOXOPLASMA IGG':'TOXG','AC. TOXOPLASMA IGM':'TOXM','RUBEOLA IGG':'RUBG','RUBEOLA IGM':'RUBM','HTLV':'HTLV',
+ 'ANTICUERPO TREPONEMA':'TREP','B2 MICROGLOBULINA':'B2M','AFP':'AFP','CEA':'CEA','PSA':'PSA','CRIOAGLUTININA; TITULO':'CRIOAG','CRIOAGLUTININA':'CRIOAG','GRUPO SANGUINEO':'GS','FACTOR RH':'RH'};
+// gases del analizador (sufijos M/C/I/E del equipo)
+const GAS_MAP={'PHM':'PH','PCO2M':'PCO2','PO2M':'PO2','HCO3-C':'HCO3','HCO3C':'HCO3','SO2M':'SAT','K+M':'KAGA','NA+M':'NAAGA','CA++M':'CAI','CL-M':'CLAGA','FIO2I':'FIO2','LACM':'LAC','PO2(A)/FIO2C':'PAFI','ABEC':'BE','ANION GAP (K+)C':'AG'};
+const GAS_SKIP=/^(THBM|HCTC|O2HBM|COHBM|METHBM|RHBM|GLUM|TI|PH\(T\)M|PCO2\(T\)M|PO2\(T\)M|TO2C|P50.*|SHUNTE|AADPO2E|A\/APO2E|MOSMC)$/;
 const ESSI_KEYS=Object.keys(ESSI_MAP).sort((a,b)=>b.length-a.length);
 function essiKey(name){const n=name.replace(/\bC\s+(3|4)\b/g,'C$1');if(ESSI_MAP[n])return ESSI_MAP[n];const k=ESSI_KEYS.find(x=>n.startsWith(x+' ')||n.startsWith(x+' -')||n===x);return k?ESSI_MAP[k]:findKey(n,null)}
 const ESSI_SKIP=/^(HEMATIES|IDE-?SD|IDE-?CV|HEMOGLOBINA CORPUSCULAR|CONCENTRACION MEDIA DE|VOLUMEN PLAQUETARIO MEDIO|BASOFILOS %|.*#)$/;
 const ESSI_TIT={'89051':'RECUENTO CELULAR','87205':'GRAM','87070':'CULTIVO','87040':'HEMOCULTIVO','87086':'UROCULTIVO','87088':'UROCULTIVO','87117':'CULTIVO DE BK','87556.01':'GENEXPERT MTB/RIF','87206':'BK DIRECTO','84157':'PROTEÍNAS','82945':'GLUCOSA','84165':'ELECTROFORESIS DE PROTEÍNAS','85007':'FROTIS DE SANGRE PERIFÉRICA','88305':'ANATOMÍA PATOLÓGICA'};
-const UNIT_RE=/^(mg\s*\/?|g\s*\/?|gr\/dl|g\/dl|mg\/dl|mmol\/l|meq\/l|u\s*\/\s*l|ui\/l|iu\s*\/\s*ml|10\^\d\/mm\^3|%|pg\s*\/?|pg\/ml|fl|um\^3|ng\/ml|ng\s*\/\s*ml|ug\/dl|seg|s|dl|ml|mm\/h|cel\/mm3)$/i;
+const UNIT_RE=/^(g\/24\s*h|mg\/24\s*h|ml\/min|mmhg|mmol\/kg|cel|mg\s*\/?|g\s*\/?|gr\/dl|g\/dl|mg\/dl|mmol\/l|meq\/l|u\s*\/\s*l|ui\/l|iu\s*\/\s*ml|10\^\d\/mm\^3|%|pg\s*\/?|pg\/ml|fl|um\^3|ng\/ml|ng\s*\/\s*ml|ug\/dl|seg|s|dl|ml|mm\/h|cel\/mm3)$/i;
 const VAL_ITEM=/^(?:[<>]=?\s*)?\d+(?:[.,]\d+)?$|^\d+\s*-\s*\d+$|^NHR$|^(?:NO\s*)?REACTIVO$|^(SUERO\s+)?NO\s*REACTIVO$|^POSITIVO|^NEGATIVO|^INDETERMINADO|^TRAZAS|^\+{1,4}$|^\d\+$|1\s*\/\s*\d+|^MEMO$/i;
 const ESSI_NOISE=/^\d{1,2}\/\d{1,2}\/\d{2},|sgss\.essalud|Muestra en ventana emergente|^Datos del Paciente|^(Apellidos y Nombres|Doc\. de Identidad|Direcci[oó]n|Cas de Adscripci[oó]n|CAS de Atencion|Tipo de Seguro|Tipo Acreditaci[oó]n|Acto de Salud|Fecha de Ingreso|Area Hospitalaria|Numero de Atencion|Examenes Auxiliares)/i;
+const SHORTN=[[/LIPOPROTEINA DE MUY BAJA DENSIDAD/,'VLDL'],[/TRIYODOTIRONINA/,'T3'],[/ANTICUERPOS? ANTINUCLEARES/,'ANA'],[/ANTIGENO NUCLEAR EXTRAIBLE/,'ENA'],[/NUCLEOCAPSIDE DE LA HEPATITIS B/,'ANTI-HBC'],
+ [/ANTIGENO DE SUPERFICIE DE LA HEPATITIS B/,'HBSAG'],[/CONTRA EL ANTIGENO DE SUPERFICIE/,'ANTI-HBS'],[/HEPATITIS C/,'ANTI-VHC'],[/HIV|VIH/,'VIH'],[/CITOMEGALOVIRUS/,'CMV'],[/HERPES SIMPLE/,'HERPES SIMPLE'],
+ [/RUBEOLA/,'RUBÉOLA'],[/TOXOPLASMA/,'TOXOPLASMA'],[/CARDIOLIPINA/,'ANTICARDIOLIPINA'],[/PEPTIDO CICLICO/,'ANTI-CCP'],[/SIFILIS|NO TREPONEMICO/,'VDRL'],[/EPSTEIN/,'EPSTEIN-BARR'],
+ [/PROTEINAS TOTALES Y FRACCIONADAS/,'PROTEÍNAS TOTALES Y FRACCIONADAS'],[/ANALISIS DE ORINA/,'EXAMEN DE ORINA'],[/PROTEINURIA/,'PROTEINURIA 24 H'],[/RADIORRENOGRAMA/,'RADIORRENOGRAMA DTPA'],[/TOLERANCIA/,'TOLERANCIA A LA GLUCOSA']];
+function shortName(t){const u=deacc(t);for(const[re,n]of SHORTN)if(re.test(u))return n;return t.length>40?t.slice(0,40).replace(/\s+\S*$/,'')+'…':t}
 function essiImgTitle(e){if(!e)return null;let n=deacc(e.name).replace(/\([^)]*\)/g,'').replace(/\s+/g,' ');const ind=deacc(e.ind||'');
   const mod=/TOMOGRAF/.test(n)?'TEM':/RESONANCIA/.test(n)?'RMN':/ECOGRAF|ULTRASONID/.test(n)?'ECOGRAFÍA':/MAMOGRAF/.test(n+' '+ind)?'MAMOGRAFÍA':/RADIOGRAF|RAYOS X/.test(n)?'RX':/ECOCARDIOGRAF/.test(n)?'ECOCARDIOGRAMA':null;if(!mod)return null;
   if(mod==='MAMOGRAFÍA')return mod;let reg=(n.match(/(?:,|\bDE\b)\s*([A-Z ]+?)\s*(?:;|,|\.|$)/)||[])[1]||'';reg=reg.replace(/^(LA|EL|LOS|LAS)\s+/,'').replace(/^(AXIAL|COMPUTARIZADA)\s*/,'').trim();
   const con=/SIN MATERIALES? DE CONTRASTE|SIN CONTRASTE/.test(n)?' SIN CONTRASTE':/CON MATERIALES? DE CONTRASTE|CON CONTRASTE/.test(n)?' CON CONTRASTE':'';return (mod+(reg?' DE '+reg:'')+con).replace(/\s+/g,' ').trim()}
 function essiConcl(tx){const u=deacc(tx);const re=/(IMPRESION DIAGNOSTICA|IMP\.?\s*DG|IDX|CONCLUSION(?:ES)?)\s*:/g;let m,last=null;while((m=re.exec(u)))last=m;return last?tx.slice(last.index+last[0].length).trim():''}
+// fuera de rango según el rango del ESSI ("M: 3.5-4.5 F: 3.5-4.5", "F: 0.5-0.9", "F: -0.3")
+function refFlag(v,rng,sx){const n=parseFloat(String(v).replace(',','.').replace(/^[<>]=?\s*/,''));if(isNaN(n)||!rng)return'';
+  const R={};rng.replace(/([MF])\s*:\s*(-?\d+(?:[.,]\d+)?)?\s*-\s*(\d+(?:[.,]\d+)?)/g,(m,s,a,b)=>{R[s]=[a!=null&&a!==''?parseFloat(a.replace(',','.')):null,parseFloat(b.replace(',','.'))]});
+  const r=R[sx]||R.F||R.M;if(!r)return'';if(r[0]!=null&&r[0]>=0&&n<r[0])return'L';if(n>r[1])return'H';return''}
+function roundV(k,v){const m=String(v).match(/^(\d+)\.(\d{3,})$/);if(!m)return v;const d=k==='DEPCR'?1:2;return String(Math.round(parseFloat(v)*10**d)/10**d)}
 function essiDetect(rows){return rows.some(r=>r.some(i=>/Examenes Auxiliares Solicitados|Solicitud Nro/i.test(i.s)))}
 function essiVal(v){v=String(v);if(v.length>14)return v.replace(/^SUERO\s+/i,'').replace(/\s+/g,' ').trim();return cleanV(String(v).replace(/^SUERO\s+/i,'').replace(/^NOREACTIVO$/i,'NO REACTIVO').replace(/\s*-\s*/,'-'))}
 function essiParse(rows){
   const out={rows:[],texts:[],pend:[],unk:[]};let exam=null,fecha=null,muestra='',solic='',inf=null,hora='';
-  const short=e=>e?(ESSI_TIT[e.code]||up(e.name).replace(/;\s*/,' ').replace(/[,(].*$/,'').replace(/^(DOSAJE DE|PRUEBA DE|DETECCION DE)\s+/,'').trim()):'';
-  const push=(k,v,f)=>{out.rows.push({fecha:f||fecha||solic,k,v:essiVal(v),h:hora});if(exam){exam.n=(exam.n||0)+1;out.texts=out.texts.filter(t=>!(t._e===exam&&/^(NHR|NO)\b/.test(t.texto)))}};
+  const short=e=>e?(ESSI_TIT[e.code]||shortName(up(e.name).replace(/;\s*/,' ').replace(/[,(].*$/,'').replace(/^(DOSAJE DE|PRUEBA DE|DETECCION DE)\s+/,'').trim())):'';
+  const push=(k,v,f,fl)=>{out.rows.push({fecha:f||fecha||solic,k,v:roundV(k,essiVal(v)),h:hora,fl:fl||''});if(exam){exam.n=(exam.n||0)+1;out.texts=out.texts.filter(t=>!(t._e===exam&&/^(NHR|NO)\b/.test(t.texto)))}};
   const special=(e,tx,f)=>{const u=deacc(tx);let hit=false;const g=(re)=>{const m=u.match(re);return m?m[1].trim():''};
     if(e.code==='86039'){const t=g(/TITULACION\s*:?\s*(1\s*\/\s*\d+)/),pt=g(/PATRON\s*:?\s*(.+?)(?=\s+TITULACION|\s+\*\*|$)/);const neg=/NEGATIVO/.test(u)&&!t;if(t||pt||neg){push('ANA',neg?'NEGATIVO':(t+(pt?' PATRÓN '+pt:'')).trim(),f);hit=true}}
     if(e.code==='86021.03'||/ANCA/.test(u)){const c=g(/ANCA[ -]?C\s*:\s*([A-Z0-9\/ ]+?)(?=\s+ANCA|\s+\*\*|\s+MPO|$)/),p=g(/ANCA[ -]?P\s*:\s*([A-Z0-9\/ ]+?)(?=\s+ANCA|\s+\*\*|\s+MPO|$)/);if(c){push('ANCAC',c,f);hit=true}if(p){push('ANCAP',p,f);hit=true}
@@ -244,6 +287,7 @@ function essiParse(rows){
         if(/VER INFORME EN PAGINA WEB/i.test(deacc(tx)))tx='VER INFORME EN EL LABORATORIO CENTRAL';out.texts.push({fecha:inf.fecha||solic,titulo:up(ti),texto:up(tx),concl:up(it?essiConcl(tx):''),img:!!it,_e:e})}}inf=null};
   rows.forEach(r=>{let it=r.filter(i=>i.s.trim()).map(i=>({x:i.x,s:i.s.trim()}));if(!it.length)return;const t0=it.map(i=>i.s).join(' ');
     if(!out.dni){const dm=t0.match(/D\.N\.I\.\s*(\d{8})/);if(dm)out.dni=dm[1]}
+    if(!out.sexo){const sx=t0.match(/Sexo\s*:?\s*(FEMENINO|MASCULINO)/i);if(sx)out.sexo=/^F/i.test(sx[1])?'F':'M'}
     if(ESSI_NOISE.test(t0))return;
     if(/^Indicaciones$/i.test(it[0].s)){if(exam)exam.ind=it.slice(1).map(i=>i.s).join(' ');return}
     if(/^Cod\. Resultado/i.test(it[0].s)){if(exam)exam.cod=it.slice(1).map(i=>i.s).join(' ');return}
@@ -261,15 +305,25 @@ function essiParse(rows){
     if(/^\d{1,2}$/.test(it[0].s)&&it.length>=2&&!/^\d/.test(it[1].s)){flush();
       let name=deacc(it[1].s).replace(/\s+(UM\^3|PG|FL|G\/DL)$/,'').trim();
       const rest=it.slice(2).filter(i=>!/^Hrs\./i.test(i.s));let unit='',val='';
-      for(const i of rest){if(/^[FM]:/.test(i.s))break;if(!val&&VAL_ITEM.test(i.s)){val=i.s;continue}if(!unit&&UNIT_RE.test(i.s.replace(/\s+/g,'')))unit=i.s}
+      let rng='';for(const i of rest){if(rng||/^[FM]:/.test(i.s)){rng+=' '+i.s;continue}if(!val&&VAL_ITEM.test(i.s)){val=i.s;continue}if(!unit&&UNIT_RE.test(i.s.replace(/\s+/g,'')))unit=i.s}
+      const nmU=deacc(it[1].s+' '+unit).toUpperCase();
       if(!val){const c=rest.find(i=>!/^[FM]:/.test(i.s)&&!UNIT_RE.test(i.s.replace(/\s+/g,'')));if(c)val=c.s}
       if(!val||/^\(.*\)$/.test(val)||ESSI_SKIP.test(name))return;
       const f=fecha||solic;
       if(/^MEMO$/i.test(val)){inf={exam:{...exam,n:0},fecha:f,lines:[],title:ESSI_TIT[exam&&exam.code]||up(name)};return}
       if(/LIQUIDO|LCR|CEFALORRAQ/.test(muestra)){out.texts.push({fecha:f,titulo:up(name+' EN '+muestra.replace(/^LIQUIDO/,'LÍQUIDO')),texto:up(val+(unit?' '+unit.replace(/\s+/g,''):''))});return}
-      let k=null;if(/ORINA/.test(muestra)||(exam&&exam.code==='81000')){k=/PROTEIN/.test(name)?(/24/.test(muestra)?'PROT24':'OPROT'):/CREATININA/.test(name)?(/24/.test(muestra)?'CREA24':null):/LEUCOCITOS/.test(name)?'OLEU':/HEMATIES/.test(name)?'OHEM':/ALBUMIN/.test(name)?'MALB':/EPITELIAL/.test(name)?'OCEL':findKey(name,'ORINA')}
+      const code=exam&&exam.code;let k=null;
+      if(/^(VOLUMEN\b|SUPERFICIE CORPORAL|RECUENTO DE COLONIAS)/.test(name)||GAS_SKIP.test(name))return;          // datos auxiliares que no van en la tabla
+      if(GAS_MAP[name]){k=GAS_MAP[name]}
+      else if(code==='82575'||/DEPURACION|ACLARAMIENTO/.test(name)){if(/DEPURACION|ACLARAMIENTO/.test(name))k='DEPCR';else if(/24/.test(name)&&/G\/24/.test(nmU))k='CREA24';else return}
+      else if(/ORINA/.test(muestra)||code==='81000'||/ORINA/.test(name)){
+        if(/PROTEIN/.test(name)){if(/24/.test(muestra+' '+name)){if(/G\/24/.test(nmU))k='PROT24';else return}else k='OPROT'}   // proteinuria 24 h: solo el valor en g/24 h
+        else if(/MICROALB|ALBUMIN/.test(name)){if(/AL AZAR|MG\/DL/.test(nmU)&&!/24 ?H/.test(nmU.replace(/24H/,'')))return;k='MALB'}
+        else if(/CREATININA/.test(name)){if(/24/.test(name)&&/G\/24/.test(nmU))k='CREA24';else return}
+        else k=/LEUCOCITOS/.test(name)?'OLEU':/HEMATIES/.test(name)?'OHEM':/EPITELIAL/.test(name)?'OCEL':findKey(name,'ORINA')}
       else k=essiKey(name);
-      if(k&&LABMAP[k])push(k,val,f);else out.unk.push(up(name)+': '+val+(unit?' '+unit:'')+' ('+fmtD2(f)+')');return}
+      if(k==='CA'&&parseFloat(val)<2.5)k='CAI';                                              // calcio iónico en mmol/L
+      if(k&&LABMAP[k])push(k,val,f,refFlag(val,rng,out.sexo));else out.unk.push(up(name)+': '+val+(unit?' '+unit:'')+' ('+fmtD2(f)+')');return}
     if(inf){const tx=it.filter(i=>!/^(FECHA|RESULTADO:)/.test(i.s)&&!/^\d{1,2}\/\d{1,2}\/\d{4}/.test(i.s)).map(i=>i.s).join(' ').trim();if(tx)inf.lines.push(tx);return}
     if(exam&&!fecha&&it.length===1&&it[0].x>60){exam.name+=' '+it[0].s}
   });
