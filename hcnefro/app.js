@@ -293,7 +293,7 @@ function vHC(){const hc=DB.hcs[R.hid];if(!hc){R.v='inicio';return vInicio()}cons
    <span class="badge ${M.length?'b-pend':'b-copy'}" title="${esc(M.join(', '))}">${M.length?'Faltan '+M.length:'Completa'}</span></div>${M.length?`<div class="muted" style="margin-top:6px">Falta: ${esc(M.join(' · '))}</div>`:''}</div>
    <div class="tabs">${tabsFor(hc).map(([k,l])=>`<button class="${tab===k?'on':''}" data-act="tab" data-tab="${k}">${l}</button>`).join('')}</div>`;
   let body='';
-  if(tab==='fil')body=`<div class="card"><h3>Paciente</h3><div class="grid w2">${F('p.nombre','Apellidos y nombres','data-up')}${F('p.dni','DNI','disabled')}</div>
+  if(tab==='fil')body=`<div class="card"><h3>Paciente</h3><div class="grid w2">${F('p.nombre','Apellidos y nombres','data-up')}<div><label>DNI / CE</label><div class="row" style="flex-wrap:nowrap"><input value="${esc(p.dni)}" disabled style="flex:1"><button class="btn sm" onclick="changeDni('${esc(p.dni)}')">Cambiar DNI</button></div></div></div>
    <div class="grid" style="margin-top:10px"><div><label>Fecha de nacimiento</label><input type="date" data-p="p.fnac" value="${esc(p.fnac)}"></div>${F('p.edad','Edad (años)',NUM)}
    <div><label>Sexo</label><select data-p="p.sexo"><option value="">—</option>${['MASCULINO','FEMENINO'].map(s=>`<option ${p.sexo===s?'selected':''}>${s}</option>`).join('')}</select></div>
    ${F('p.natural','Natural de','data-up')}${F('p.procedencia','Procedente de','data-up')}${F('p.ocupacion','Ocupación','data-up')}${F('p.civil','Estado civil','data-up')}${F('p.religion','Religión','data-up')}
@@ -462,8 +462,15 @@ function revExtraHTML(S,stateName,pendLabel){return `${(S.texts||[]).length?`<h4
 /* ---- Pacientes y ajustes ---- */
 function vPacientes(){const q=deacc(R.q||'');const ps=Object.values(DB.patients).filter(p=>!q||p.dni.includes(q)||deacc(p.nombre).includes(q)).sort((a,b)=>a.nombre.localeCompare(b.nombre));
   return `<div class="card"><h2>Pacientes (${Object.keys(DB.patients).length})</h2><input id="pq" placeholder="Buscar" value="${esc(R.q||'')}" oninput="R.q=this.value;const c=this.selectionStart;render();const i=$('#pq');i.focus();i.setSelectionRange(c,c)"></div>
-  ${ps.map(p=>{const hs=Object.values(DB.hcs).filter(h=>h.dni===p.dni).sort((a,b)=>b.fecha.localeCompare(a.fecha));return `<div class="card"><div class="pt"><div><div class="nm">${esc(p.nombre)}</div><div class="muted">DNI ${esc(p.dni)} · ${hs.length} HC · ${p.pulsos.filter(x=>x.fi).length} pulso(s) · ${p.labs.length} fecha(s) de labs</div></div><button class="btn sm bad" onclick="delPatient('${esc(p.dni)}')">Eliminar</button></div>
+  ${ps.map(p=>{const hs=Object.values(DB.hcs).filter(h=>h.dni===p.dni).sort((a,b)=>b.fecha.localeCompare(a.fecha));return `<div class="card"><div class="pt"><div><div class="nm">${esc(p.nombre)}</div><div class="muted">DNI ${esc(p.dni)} · ${hs.length} HC · ${p.pulsos.filter(x=>x.fi).length} pulso(s) · ${p.labs.length} fecha(s) de labs</div></div><div class="row"><button class="btn sm" onclick="changeDni('${esc(p.dni)}')">Cambiar DNI</button><button class="btn sm bad" onclick="delPatient('${esc(p.dni)}')">Eliminar</button></div></div>
    ${hs.map(h=>`<div class="pt" style="border-top:1px solid var(--line);padding:6px 0;margin-top:6px"><span>${fmtD(h.fecha)} · ${h.tipo==='pulso'?'Pulso':'General'}</span><div class="row"><button class="btn sm" onclick="go('hc',{hid:'${h.id}'})">Abrir</button><button class="btn sm bad" onclick="delHC('${h.id}')">✕</button></div></div>`).join('')}</div>`}).join('')||'<div class="card muted">Sin pacientes.</div>'}`}
+function askText(msg,val,ok='Guardar'){return new Promise(res=>{const o=document.createElement('div');o.className='modal';
+  o.innerHTML=`<div class="mbox"><p>${esc(msg)}</p><input id="askIn" value="${esc(val||'')}" inputmode="numeric" autocomplete="off" style="margin:8px 0 12px"><div class="row" style="justify-content:flex-end"><button class="btn" data-r="0">Cancelar</button><button class="btn pri" data-r="1">${esc(ok)}</button></div></div>`;
+  o.addEventListener('click',e=>{const b=e.target.closest('button');if(b||e.target===o){const v=$('#askIn').value;o.remove();res(b&&b.dataset.r==='1'?v:null)}});document.body.appendChild(o);setTimeout(()=>{const i=$('#askIn');if(i){i.focus();i.select()}},50)})}
+async function changeDni(old){const p=DB.patients[old];if(!p)return;let v=await askText('Nuevo DNI / CE de '+p.nombre+' (ahora: '+old+'). Se mueven también sus HC, labs y pulsos.',old);if(v==null)return;
+  v=v.trim().replace(/\s/g,'').toUpperCase();if(v===old)return;if(!/^[0-9A-Z]{6,12}$/.test(v))return toast('DNI/CE no válido (6 a 12 letras o números)');
+  if(DB.patients[v])return toast('Ya existe otro paciente con el DNI '+v+': '+DB.patients[v].nombre);
+  p.dni=v;p.updated=Date.now();DB.patients[v]=p;delete DB.patients[old];Object.values(DB.hcs).forEach(h=>{if(h.dni===old){h.dni=v;h.updated=Date.now()}});save();rerender();toast('DNI cambiado a '+v)}
 async function delPatient(dni){if(!await ask('¿Eliminar a '+DB.patients[dni].nombre+' con todas sus HC, labs y pulsos?'))return;Object.values(DB.hcs).filter(h=>h.dni===dni).forEach(h=>delete DB.hcs[h.id]);delete DB.patients[dni];save();render()}
 function vAjustes(){const s=DB.settings;
   CUR={click(a){if(a==='saveAj'){s.autor=up($('#sAut').value.trim());s.exGen=up($('#sGen').value.trim());EXSEG.forEach(([k])=>s.ex[k]=up($('#sx_'+k).value.trim()));save();toast('Ajustes guardados')}else if(a==='resetEx'){EXSEG.forEach(([k])=>$('#sx_'+k).value=EXDEF[k]);$('#sGen').value=EXGEN}}};
@@ -474,7 +481,7 @@ function vAjustes(){const s=DB.settings;
   <div class="card"><h3>Respaldo</h3><p class="muted" style="margin-top:0">Último: ${s.lastBackup?new Date(s.lastBackup).toLocaleString('es-PE'):'nunca'} · ${(bytes/1024).toFixed(0)} KB</p>
    <div class="row"><button class="btn pri" onclick="exportBackup()">Exportar respaldo</button><label class="btn" style="margin:0;color:var(--ink);font-size:16px">Importar<input type="file" accept=".json,application/json" style="display:none" onchange="importBackup(this.files[0])"></label></div></div>
   <div class="card"><h3>Zona de riesgo</h3><button class="btn bad" onclick="wipe()">Borrar todos los datos</button></div>
-  <p class="muted">HC Nefro v2.0 · Plantillas editables: valídalas con el servicio.</p>`}
+  <p class="muted">HC Nefro v2.1 · Plantillas editables: valídalas con el servicio.</p>`}
 
 /* =====================================================================
    EXPORTAR
