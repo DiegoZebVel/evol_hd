@@ -1,16 +1,19 @@
-# HC Nefro v2.0: historias clínicas de Nefrología
+# HC Nefro v2.1: historias clínicas de Nefrología
 
 ## Actualizar (si ya la tienes instalada)
 1. **Antes de nada:** en la app → Ajustes → **Exportar respaldo**.
 2. Descomprime el zip → carpeta `hcnefro`.
 3. En tu repo de GitHub: entra a la carpeta `hcnefro` → **Add file → Upload files** → arrastra **todos los archivos** de la carpeta (reemplazan a los anteriores) → Commit.
-4. Espera 1–2 minutos. En el iPad abre la app con internet, ciérrala del todo y vuelve a abrirla. En Ajustes debe decir **HC Nefro v2.0**.
+4. Espera 1–2 minutos. En el iPad abre la app con internet, ciérrala del todo y vuelve a abrirla. En Ajustes debe decir **HC Nefro v2.1**.
 5. Tus datos se conservan y se pasan solos al formato nuevo (el perfil inmunológico se une al laboratorio).
 
 ## Instalar por primera vez
 1. Sube la carpeta `hcnefro` completa al repo (Add file → Upload files → Commit).
 2. En el iPad (Safari): `https://TU-USUARIO.github.io/NOMBRE-DEL-REPO/hcnefro/` → Compartir → Agregar a pantalla de inicio.
 3. Ábrela una vez con internet. Ajustes → “Elaborado por”.
+
+## Qué cambió en la v2.1
+- **Cambiar DNI:** en Filiación (junto al DNI) o en Pacientes, botón **Cambiar DNI**. Se mueven también sus HC, labs y pulsos. Si el DNI nuevo ya es de otro paciente, no lo cambia y te avisa.
 
 ## Qué cambió en la v2.0
 ### Laboratorio en 3 pasos
